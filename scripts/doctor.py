@@ -64,9 +64,15 @@ def main() -> int:
     else:
         report(False, "fc-list present (fontconfig)")
 
-    voice = cfg.get("voice.piper_voice", "en_US-ryan-high")
-    report(Path(cfg.path("voices", voice + ".onnx")).exists(), "piper voice " + voice,
-           "will be downloaded on first use" if cfg.get("voice.mode") == "tts" else "")
+    if str(cfg.get("voice.engine", "kokoro")).lower() == "kokoro":
+        from cybershorts import tts as _tts
+        model, voices = _tts._kokoro_paths(cfg)
+        report(model.exists() and voices.exists(), "kokoro voice " + str(cfg.get("voice.kokoro_voice", "am_michael")),
+               "will be downloaded on first use (~120 MB)" if cfg.get("voice.mode") == "tts" else "")
+    else:
+        voice = cfg.get("voice.piper_voice", "en_US-ryan-high")
+        report(Path(cfg.path("voices", voice + ".onnx")).exists(), "piper voice " + voice,
+               "will be downloaded on first use" if cfg.get("voice.mode") == "tts" else "")
 
     yt_tok = cfg.path("youtube_token.json")
     report(yt_tok.exists(), "youtube token file", str(yt_tok))

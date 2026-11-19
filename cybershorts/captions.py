@@ -35,6 +35,51 @@ def transcribe_words(cfg: Config, wav: Path | str, prompt: str = "") -> list[Wor
     return words
 
 
+_NORM = __import__("re").compile(r"[^a-z0-9]+")
+
+
+def _norm(w: str) -> str:
+    return _NORM.sub("", w.lower())
+
+
+def align_to_script(words: list[Word], script: str, min_ratio: float = 0.5) -> list[Word]:
+    """Put the script's exact words on Whisper's timings.
+
+    Whisper hears the spoken text (which may use pronunciation spellings like "Sisa"),
+    so captions would otherwise show its guesses. Matched words keep their timing;
+    mismatched runs are spread across the Whisper span they replaced. If the audio
+    differs too much from the script (e.g. an ad-libbed voice memo), Whisper's own
+    words are kept.
+    """
+    import difflib
+
+    script_words = [w for w in (script or "").split() if _norm(w)]
+    if not words or not script_words:
+        return words
+    a = [_norm(w[2]) for w in words]
+    b = [_norm(w) for w in script_words]
+    sm = difflib.SequenceMatcher(None, a, b, autojunk=False)
+    if sm.ratio() < min_ratio:
+        log.info("Script/audio match %.2f too low; keeping Whisper words", sm.ratio())
+        return words
+    out: list[Word] = []
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == "equal":
+            out.extend((words[i][0], words[i][1], script_words[j]) for i, j in zip(range(i1, i2), range(j1, j2)))
+        elif tag in ("replace", "insert"):
+            if i2 > i1:
+                start, end = words[i1][0], words[i2 - 1][1]
+            else:  # script words with no audio match: squeeze between neighbours
+                start = out[-1][1] if out else (words[0][0] if words else 0.0)
+                end = words[i1][0] if i1 < len(words) else start + 0.3 * (j2 - j1)
+                end = max(end, start + 0.05)
+            n = j2 - j1
+            step = (end - start) / n
+            out.extend((start + k * step, start + (k + 1) * step, script_words[j1 + k]) for k in range(n))
+        # "delete": audio words not in the script (rare) are dropped
+    return out
+
+
 def chunk_words(words: list[Word], n: int = 3) -> list[Chunk]:
     """Group words into chunks of at most n; also break after words ending in . ! ? ,"""
     n = max(1, int(n))

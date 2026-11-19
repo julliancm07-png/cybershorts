@@ -199,6 +199,7 @@ def render_draft(cfg: Config, draft_id: int) -> Path:
             raise RuntimeError("Draft has no audio file")
         wav = Path(row["audio_path"])
         words = captions.transcribe_words(cfg, wav, data.get("script", ""))
+        words = captions.align_to_script(words, data.get("script", ""))
         if not words:
             raise RuntimeError("Transcription produced no words")
         chunks = captions.chunk_words(words, int(cfg.get("captions.words_per_chunk", 3)))

@@ -213,7 +213,7 @@ class PipelineTests(unittest.TestCase):
         tg.send_message.return_value = {"message_id": 5}
         tg.send_video.return_value = {"message_id": 6}
         render_mock = mock.Mock(side_effect=fake)
-        with mock.patch("cybershorts.captions.transcribe_words", return_value=[{"w": "a"}]), \
+        with mock.patch("cybershorts.captions.transcribe_words", return_value=[(0.0, 0.5, "a")]), \
              mock.patch("cybershorts.captions.chunk_words", return_value=[]), \
              mock.patch("cybershorts.captions.write_ass"), \
              mock.patch("cybershorts.render.probe_duration", return_value=1.0), \

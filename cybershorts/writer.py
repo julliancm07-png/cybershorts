@@ -112,7 +112,7 @@ def validate_script(data: dict, story: dict, cfg: Config) -> dict:
     sign_off = cfg.get("channel.sign_off", "")
     script = str(data["script"]).strip()
     if sign_off and sign_off.lower().rstrip(".!") not in script.lower():
-        script = f"{script} {sign_off}"
+        script = f"{script}\n\n{sign_off}"
     tags_raw = data.get("hashtags") or []
     if isinstance(tags_raw, str):
         tags_raw = re.split(r"[\s,]+", tags_raw)
@@ -165,7 +165,11 @@ def write_script(cfg: Config, story: dict) -> dict:
         f"URL: {story['url']}\nSummary: {story.get('summary','')}\n\n"
         "How the narration must sound:\n"
         "- Open with a hook a viewer can't scroll past: the stakes in plain words, not the headline.\n"
-        "- Short sentences, mostly under 15 words. One idea per sentence. Use contractions.\n"
+        "- Short sentences, mostly under 15 words. One idea per sentence. Use contractions. "
+        "Vary the rhythm: mix a few very short sentences with medium ones.\n"
+        "- Write it in 3 to 5 beats, one per paragraph, separated by a blank line: hook, "
+        "what happened, why it matters, what to do, sign-off. The voice pauses between beats.\n"
+        "- Use commas and em dashes where a speaker would breathe. No ellipses.\n"
         "- Then: what happened, who's affected, and what to do about it, as a natural flow, "
         "not a list. Use spoken transitions like 'Here's the thing', 'So what do you do?'.\n"
         "- No headline-speak, no stacked nouns ('critical unauthenticated remote code execution flaw'), "
