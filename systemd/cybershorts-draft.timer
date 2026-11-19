@@ -1,0 +1,13 @@
+[Unit]
+Description=Run cybershorts draft generation three times a day
+
+[Timer]
+OnCalendar=*-*-* 08:15:00 America/New_York
+OnCalendar=*-*-* 12:45:00 America/New_York
+OnCalendar=*-*-* 17:30:00 America/New_York
+Persistent=true
+RandomizedDelaySec=300
+Unit=cybershorts-draft.service
+
+[Install]
+WantedBy=timers.target

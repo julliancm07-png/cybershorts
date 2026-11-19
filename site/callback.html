@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TikTok authorization - Cyber Shorts</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #0b0d12; color: #e6e8ee; font: 16px/1.6 system-ui, sans-serif; }
+  main { max-width: 680px; margin: 0 auto; padding: 48px 20px; }
+  h1 { font-size: 24px; margin: 0 0 12px; }
+  p { color: #b4bac7; }
+  label { display: block; margin: 16px 0 6px; color: #b4bac7; font-size: 14px; }
+  textarea { width: 100%; box-sizing: border-box; height: 96px; background: #151922; color: #e6e8ee;
+    border: 1px solid #2a3140; border-radius: 6px; padding: 10px; font: 14px monospace; resize: vertical; }
+  button { margin-top: 10px; background: #2a3140; color: #e6e8ee; border: 1px solid #3a4456;
+    border-radius: 6px; padding: 8px 16px; font: 14px system-ui, sans-serif; cursor: pointer; }
+  button:hover { background: #343d50; }
+  .error { color: #ff8a8a; white-space: pre-wrap; }
+  #status { margin-top: 12px; font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>TikTok authorization</h1>
+  <div id="error" class="error" hidden></div>
+  <div id="ok" hidden>
+    <p>Paste this into the auth_tiktok.py prompt</p>
+    <label for="code">Authorization code</label>
+    <textarea id="code" readonly></textarea>
+    <button id="copy" type="button">Copy</button>
+    <div id="status"></div>
+    <label for="state">State (for checking)</label>
+    <textarea id="state" readonly style="height:48px"></textarea>
+  </div>
+  <p><a href="index.html" style="color:#8ab4ff">Back to home</a></p>
+</main>
+<script>
+  // Reads values from the URL only. Nothing is sent over the network.
+  (function () {
+    var params = new URLSearchParams(window.location.search);
+    var error = params.get("error");
+    var errorDesc = params.get("error_description");
+    var code = params.get("code");
+    var state = params.get("state");
+
+    if (error) {
+      var box = document.getElementById("error");
+      box.textContent = "Authorization failed: " + error + (errorDesc ? "\n" + errorDesc : "");
+      box.hidden = false;
+      return;
+    }
+    if (!code) {
+      var em = document.getElementById("error");
+      em.textContent = "No authorization code was found in this URL.";
+      em.hidden = false;
+      return;
+    }
+
+    document.getElementById("ok").hidden = false;
+    document.getElementById("code").value = code;
+    document.getElementById("state").value = state || "(none)";
+
+    document.getElementById("copy").addEventListener("click", function () {
+      var ta = document.getElementById("code");
+      ta.select();
+      var status = document.getElementById("status");
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(ta.value).then(
+          function () { status.textContent = "Copied."; },
+          function () { status.textContent = "Copy failed. Select the text and copy it manually."; }
+        );
+      } else {
+        document.execCommand("copy");
+        status.textContent = "Copied.";
+      }
+    });
+  })();
+</script>
+</body>
+</html>

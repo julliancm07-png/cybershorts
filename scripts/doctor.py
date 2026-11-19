@@ -1,0 +1,148 @@
+#!/usr/bin/env python3
+"""Environment/config checks. Use --offline to skip network checks."""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+import argparse
+import logging
+import shutil
+import subprocess
+import time
+
+logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+FAILS = 0
+
+
+def report(ok: bool, name: str, detail: str = "") -> None:
+    global FAILS
+    if not ok:
+        FAILS += 1
+    print("%s %s%s" % ("✓" if ok else "✗", name, (" - " + detail) if detail else ""))
+
+
+def run(cmd, timeout=20) -> str:
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout).stdout
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--offline", action="store_true", help="skip network checks")
+    args = ap.parse_args()
+
+    try:
+        from cybershorts.config import load
+
+        cfg = load()
+        report(True, "config loads", str(cfg.app_dir))
+    except Exception as e:  # noqa: BLE001
+        report(False, "config loads", str(e))
+        return 1
+
+    for attr in ("openrouter_api_key", "pixabay_api_key", "telegram_bot_token", "telegram_chat_id",
+                 "tiktok_client_key", "tiktok_client_secret", "tiktok_redirect_uri"):
+        report(bool(getattr(cfg, attr, "")), "env " + attr.upper())
+    print("  (HEALTHCHECK_URL is optional: %s)" % ("set" if cfg.healthcheck_url else "not set"))
+
+    for tool in ("ffmpeg", "ffprobe"):
+        report(shutil.which(tool) is not None, tool + " present")
+    if shutil.which("ffmpeg"):
+        try:
+            out = run(["ffmpeg", "-hide_banner", "-filters"])
+            report(" ass " in out, "ffmpeg has 'ass' filter")
+        except Exception as e:  # noqa: BLE001
+            report(False, "ffmpeg has 'ass' filter", str(e))
+    font = cfg.get("captions.font", "DejaVu Sans")
+    if shutil.which("fc-list"):
+        try:
+            out = run(["fc-list", ":family=" + font])
+            report(bool(out.strip()), "font '%s'" % font)
+        except Exception as e:  # noqa: BLE001
+            report(False, "font '%s'" % font, str(e))
+    else:
+        report(False, "fc-list present (fontconfig)")
+
+    voice = cfg.get("voice.piper_voice", "en_US-ryan-high")
+    report(Path(cfg.path("voices", voice + ".onnx")).exists(), "piper voice " + voice,
+           "will be downloaded on first use" if cfg.get("voice.mode") == "tts" else "")
+
+    yt_tok = cfg.path("youtube_token.json")
+    report(yt_tok.exists(), "youtube token file", str(yt_tok))
+    tt_tok = cfg.path("tiktok_token.json")
+    report(tt_tok.exists(), "tiktok token file", str(tt_tok))
+    if tt_tok.exists():
+        try:
+            import json
+
+            t = json.loads(tt_tok.read_text())
+            left = t.get("refresh_expires_at", 0) - time.time()
+            report(left > 0, "tiktok refresh token valid", "%.0f days left" % (left / 86400))
+        except Exception as e:  # noqa: BLE001
+            report(False, "tiktok token readable", str(e))
+
+    if args.offline:
+        print("\nOffline mode: network checks skipped.")
+        return 0 if FAILS == 0 else 1
+
+    import requests
+
+    if yt_tok.exists():
+        try:
+            from cybershorts import youtube
+
+            youtube.get_service(cfg)
+            report(True, "youtube token refreshes")
+        except Exception as e:  # noqa: BLE001
+            report(False, "youtube token refreshes", str(e)[:150])
+    if tt_tok.exists() and cfg.tiktok_client_key:
+        try:
+            from cybershorts import tiktok
+
+            tiktok.get_token(cfg)
+            report(True, "tiktok token usable")
+        except Exception as e:  # noqa: BLE001
+            report(False, "tiktok token usable", str(e)[:150])
+    if cfg.openrouter_api_key:
+        try:
+            r = requests.get("https://openrouter.ai/api/v1/key", timeout=15,
+                             headers={"Authorization": "Bearer " + cfg.openrouter_api_key})
+            report(r.ok, "OpenRouter key valid", "HTTP %d" % r.status_code)
+        except requests.RequestException as e:
+            report(False, "OpenRouter key valid", type(e).__name__)
+    if cfg.telegram_bot_token:
+        try:
+            from cybershorts.telegram import Telegram
+
+            me = Telegram(cfg.telegram_bot_token, cfg.telegram_chat_id).get_me()
+            report(True, "Telegram getMe", "@%s" % me.get("username"))
+        except Exception as e:  # noqa: BLE001
+            report(False, "Telegram getMe", str(e)[:150])
+    try:
+        from cybershorts import visuals
+        d = visuals.local_dir(cfg)
+        n = len([f for f in d.iterdir() if f.suffix.lower() in visuals.VIDEO_EXTS]) if d.is_dir() else 0
+        print("  b-roll provider: %s; local clips in %s: %d" % (cfg.get("broll.provider", "pixabay"), d, n))
+    except Exception:  # noqa: BLE001
+        pass
+    if cfg.pixabay_api_key:
+        try:
+            r = requests.get("https://pixabay.com/api/videos/", timeout=15,
+                             params={"key": cfg.pixabay_api_key, "q": "technology", "per_page": 3})
+            report(r.ok, "Pixabay test query", "HTTP %d" % r.status_code)
+        except requests.RequestException as e:
+            report(False, "Pixabay test query", type(e).__name__)
+    if cfg.pexels_api_key:
+        try:
+            r = requests.get("https://api.pexels.com/videos/search", timeout=15,
+                             params={"query": "technology", "per_page": 1},
+                             headers={"Authorization": cfg.pexels_api_key})
+            report(r.ok, "Pexels test query", "HTTP %d" % r.status_code)
+        except requests.RequestException as e:
+            report(False, "Pexels test query", type(e).__name__)
+    return 0 if FAILS == 0 else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,15 @@
+[Unit]
+Description=cybershorts: create one news Short draft and send it for review
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+TimeoutStartSec=45min
+User=cybershorts
+Group=cybershorts
+WorkingDirectory=/opt/cybershorts
+ExecStart=/opt/cybershorts/.venv/bin/python scripts/make_draft.py
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
