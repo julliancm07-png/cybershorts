@@ -52,36 +52,52 @@ def tiktok_caption(data: dict) -> str:
     return f"{_first_sentence(data.get('description', ''))} {tags}".strip()
 
 
+def _fact_check_lines(fc, max_issues: int = 5) -> list[str]:
+    """Plain-text lines (to be HTML-escaped by the caller) for the fact-check result."""
+    if not isinstance(fc, dict):
+        return []
+    if fc.get("skipped"):
+        reason = " ".join(str(fc["skipped"]).split())[:80]
+        return [f"ℹ️ Fact-check skipped ({reason})"]
+    issues = [str(i) for i in (fc.get("issues") or []) if str(i).strip()][:max_issues]
+    if fc.get("ok", True) and not issues:
+        return ["✅ Fact-check: nothing unsupported found"]
+    return ["⚠️ Fact-check:"] + [f"• {i}" for i in issues]
+
+
 def _telegram_caption(data: dict, story_url: str, draft_id: int) -> str:
-    """HTML-escaped caption, <= 1024 chars."""
+    """HTML-escaped caption, <= 1024 chars (script preview is trimmed first)."""
     title = data.get("on_screen_title", "")
     script = data.get("script", "")
-    preview = script if len(script) <= 300 else script[:299].rstrip() + "…"
+    full_preview = script if len(script) <= 300 else script[:299].rstrip() + "…"
     tt = tiktok_caption(data)
-    parts = [
-        ("<b>", title, "</b>"),
-        ("", f"Draft #{draft_id}", ""),
-        ("", preview, ""),
-        ("", story_url, ""),
-        ("TikTok caption: ", tt, ""),
-    ]
+    fc = data.get("fact_check")
 
-    def build(max_tt: int | None) -> str:
-        out = []
-        for pre, body, post in parts:
-            if pre.startswith("TikTok") and max_tt is not None:
-                body = body[:max_tt]
-            out.append(f"{pre}{html.escape(body)}{post}")
-        return "\n\n".join(out)
+    def build(prev_len: int, tt_len: int, max_issues: int) -> str:
+        preview = full_preview
+        if len(preview) > prev_len:
+            preview = preview[:prev_len].rstrip() + "…" if prev_len > 0 else ""
+        blocks = [f"<b>{html.escape(title)}</b>", f"Draft #{draft_id}"]
+        if preview:
+            blocks.append(html.escape(preview))
+        fcl = _fact_check_lines(fc, max_issues)
+        if fcl:
+            blocks.append("\n".join(html.escape(x) for x in fcl))
+        blocks.append(html.escape(story_url))
+        blocks.append("TikTok caption: " + html.escape(tt[:tt_len]))
+        return "\n\n".join(blocks)
 
-    cap = build(None)
-    n = len(tt)
-    while len(cap) > 1024 and n > 0:
-        n = max(0, n - 40)
-        cap = build(n)
-    if len(cap) > 1024:  # last resort: drop preview
-        parts[2] = ("", "", "")
-        cap = build(0)
+    prev_len, tt_len, max_issues = len(full_preview), len(tt), 5
+    cap = build(prev_len, tt_len, max_issues)
+    while len(cap) > 1024 and prev_len > 0:  # trim the script preview first
+        prev_len = max(0, prev_len - 40)
+        cap = build(prev_len, tt_len, max_issues)
+    while len(cap) > 1024 and tt_len > 0:
+        tt_len = max(0, tt_len - 40)
+        cap = build(prev_len, tt_len, max_issues)
+    while len(cap) > 1024 and max_issues > 0:
+        max_issues -= 1
+        cap = build(prev_len, tt_len, max_issues)
     return cap[:1024]
 
 
@@ -141,6 +157,8 @@ def make_draft(cfg: Config) -> int | None:
                 story = dict(story, article=article.fetch_text(
                     story["url"], int(cfg.get("news.max_article_chars", 6000))))
             data = writer.write_script(cfg, story)
+            if cfg.get("llm.fact_check", True):
+                data["fact_check"] = writer.fact_check(cfg, story, data)
         except Exception as e:
             log.error("Draft creation failed before draft row: %s", _short_error(cfg, e))
             _notify(cfg, f"Scheduled draft failed: {_short_error(cfg, e)}")
@@ -208,24 +226,26 @@ def render_draft(cfg: Config, draft_id: int) -> Path:
             raise RuntimeError("Transcription produced no words")
         chunks = captions.chunk_words(words, int(cfg.get("captions.words_per_chunk", 3)))
         duration = render.probe_duration(wav)
-        ass = cfg.path("work") / f"draft_{draft_id}.ass"
-        captions.write_ass(chunks, cfg, data.get("on_screen_title", ""),
-                           cfg.get("channel.handle", ""), duration + render.PAD_SECONDS, ass)
-
-        broll = None
+        script = data.get("script", "")
+        beats = captions.beat_times(words, script, duration)
+        clips: list[Path] = []
         if str(cfg.get("broll.provider", "pixabay")).lower() != "none":
             from . import visuals
 
-            broll = visuals.fetch_broll(cfg, data.get("pexels_query") or "technology",
-                                        cfg.path("work") / f"draft_{draft_id}_broll.mp4")
+            clips = visuals.fetch_broll_set(cfg, len(beats), data.get("pexels_query") or "technology",
+                                            cfg.path("work") / f"draft_{draft_id}_broll")
+        ass = cfg.path("work") / f"draft_{draft_id}.ass"
+        captions.write_ass(chunks, cfg, data.get("on_screen_title", ""),
+                           cfg.get("channel.handle", ""), duration + render.PAD_SECONDS, ass,
+                           words=words, keywords=data.get("keywords"), beats=beats)
         out = cfg.path("videos") / f"draft_{draft_id}.mp4"
         try:
-            render.render(cfg, wav, ass, broll, out)
+            render.render(cfg, wav, ass, clips or None, out, beats=beats)
         except RuntimeError as e:
-            if not broll:
+            if not clips:
                 raise
             log.warning("Render with b-roll failed (%s); retrying without b-roll", e)
-            render.render(cfg, wav, ass, None, out)
+            render.render(cfg, wav, ass, None, out, beats=beats)
 
         from .telegram import keyboard
 

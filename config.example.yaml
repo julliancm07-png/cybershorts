@@ -27,7 +27,7 @@ news:
 llm:
   model: "anthropic/claude-haiku-4.5"   # any OpenRouter model ID, e.g. "deepseek/deepseek-v4.1-flash-1017"
   temperature: 0.6
-  target_words: [80, 110]  # spoken script length range
+  target_words: [65, 95]  # spoken script length range
   # Extra guidance added to every script prompt, e.g. "a bit of dry humor; always end with one practical tip"
   style_notes: ""
   # OpenRouter host routing. sort: price = always the cheapest host for the model
@@ -35,6 +35,8 @@ llm:
   # that may train on prompts (can cost a little more).
   provider:
     sort: price
+  fact_check: true         # second model pass that checks the script against the article
+  fact_check_model: ""     # empty = same model as above; any OpenRouter model ID to use another
 
 # Narration. mode: tts (AI voice) or record (you send a Telegram voice message).
 voice:
@@ -73,6 +75,7 @@ captions:
   words_per_chunk: 3
   font: "DejaVu Sans"
   font_size: 92
+  style: karaoke           # karaoke (word highlight as spoken) or plain (static chunks)
 
 # Output video settings (FFmpeg).
 video:
@@ -82,6 +85,17 @@ video:
   crf: 23
   preset: "veryfast"
   darken: 0.35             # 0 to 1, how much to darken the b-roll behind captions
+  hook_seconds: 1.6        # opening seconds with a bold hook caption; 0 = off
+
+# On-screen branding. Logo file lives in data/brand/ (see README).
+branding:
+  accent: "#3DDCFF"        # accent color for bars and highlights
+  keyword_color: "#FFD60A" # color of the highlighted caption word
+  watermark: "brand/logo.png" # path relative to data/; empty = no logo
+  watermark_size: 150      # logo width in pixels
+  watermark_opacity: 0.85  # 0 to 1
+  progress_bar: true       # thin progress bar along the bottom; false = off
+  end_card: true           # short closing card with channel handle; false = off
 
 # Background clips. provider: pixabay (free key, default), pexels, local, or none.
 # Drop your own .mp4 clips (screen recordings, homelab footage) in data/broll/:
@@ -90,6 +104,8 @@ video:
 broll:
   provider: pixabay
   local_dir: broll        # relative to data/, or an absolute path
+  max_clips: 5            # most b-roll clips cut into one video
+  ken_burns: true         # slow zoom/pan motion on b-roll; false = static frames
   # false: pick a random generic background from `queries` below (looks better, no odd matches).
   # true: search for a clip that matches the story.
   match_story: false

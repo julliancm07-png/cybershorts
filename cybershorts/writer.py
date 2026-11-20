@@ -15,11 +15,12 @@ log = logging.getLogger("cybershorts")
 API_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 
-def chat(cfg: Config, messages: list[dict], temperature: float | None = None) -> str:
+def chat(cfg: Config, messages: list[dict], temperature: float | None = None,
+         model: str | None = None) -> str:
     if not cfg.openrouter_api_key:
         raise RuntimeError("OPENROUTER_API_KEY is not set")
     payload = {
-        "model": cfg.get("llm.model", "anthropic/claude-haiku-4.5"),
+        "model": model or cfg.get("llm.model", "anthropic/claude-haiku-4.5"),
         "temperature": cfg.get("llm.temperature", 0.5) if temperature is None else temperature,
         "messages": messages,
     }
@@ -149,6 +150,16 @@ def validate_script(data: dict, story: dict, cfg: Config) -> dict:
         desc = f"{desc}\n{hashtag_line}"
     query = str(data.get("pexels_query") or "").strip() or "technology"
     query = " ".join(query.split()[:4])
+    kw_raw = data.get("keywords") or []
+    if isinstance(kw_raw, str):
+        kw_raw = re.split(r"[,;\n]+", kw_raw)
+    if not isinstance(kw_raw, (list, tuple)):
+        kw_raw = []
+    keywords: list[str] = []
+    for k in kw_raw:
+        k = " ".join(str(k).split())
+        if k and len(k) <= 24 and k.lower() not in [x.lower() for x in keywords]:
+            keywords.append(k)
     return {
         "on_screen_title": _truncate(str(data["on_screen_title"]), 42),
         "script": script,
@@ -156,11 +167,12 @@ def validate_script(data: dict, story: dict, cfg: Config) -> dict:
         "description": desc,
         "hashtags": tags,
         "pexels_query": query,
+        "keywords": keywords[:6],
     }
 
 
 def write_script(cfg: Config, story: dict) -> dict:
-    lo, hi = cfg.get("llm.target_words", [80, 110])
+    lo, hi = cfg.get("llm.target_words", [65, 95])
     sign_off = cfg.get("channel.sign_off", "")
     style_notes = str(cfg.get("llm.style_notes", "") or "").strip()
     system = (
@@ -202,6 +214,8 @@ def write_script(cfg: Config, story: dict) -> dict:
         'then a line of hashtags\n'
         '- "hashtags": list of 3-6 tags without the # symbol\n'
         '- "pexels_query": 2-4 word generic visual search query (e.g. "server room")\n'
+        '- "keywords": 3-6 short words or phrases copied from your script (product, threat, action) '
+        'to emphasise on screen, each max 24 characters\n'
     )
     last: Exception | None = None
     for attempt in range(2):
@@ -212,3 +226,35 @@ def write_script(cfg: Config, story: dict) -> dict:
             last = e
             log.warning("Script parse/validate failed (attempt %d): %s", attempt + 1, e)
     raise RuntimeError(f"LLM did not return a valid script: {last}")
+
+
+def fact_check(cfg: Config, story: dict, data: dict) -> dict:
+    """Check the script against the source. Returns {"ok": bool, "issues": [...]}.
+    Never raises: any failure gives {"ok": True, "issues": [], "skipped": reason}."""
+    try:
+        source = str(story.get("article") or "").strip()
+        if not source:
+            source = f"{story.get('title', '')}\n{story.get('summary', '')}".strip()
+        claims = (f"on_screen_title: {data.get('on_screen_title', '')}\n"
+                  f"script: {data.get('script', '')}\n"
+                  f"description: {data.get('description', '')}")
+        prompt = (
+            "You are a strict fact-checker for a short IT/security news video.\n"
+            "List each claim in the script, on_screen_title or description that the source does not support. "
+            "Rephrasing, simplification and summary are supported; only flag facts (numbers, names, "
+            "versions, dates, who/what is affected, exploitation status) that the source does not state "
+            "or that it contradicts. Ignore tone, the hook's framing and the sign-off.\n\n"
+            f"SOURCE:\n{source}\n\nVIDEO TEXT:\n{claims}\n\n"
+            'Return JSON only: {"issues": ["short description of each unsupported claim", ...]} '
+            "with at most 5 issues, each under 140 characters. Use an empty list if everything is supported."
+        )
+        model = str(cfg.get("llm.fact_check_model", "") or "").strip()
+        text = chat(cfg, [{"role": "user", "content": prompt}], temperature=0, model=model or None)
+        raw = extract_json(text).get("issues") or []
+        if isinstance(raw, str):
+            raw = [raw]
+        issues = [_truncate(" ".join(str(i).split()), 140) for i in raw if str(i).strip()][:5]
+        return {"ok": not issues, "issues": issues}
+    except Exception as e:  # noqa: BLE001
+        log.warning("fact_check skipped: %s", type(e).__name__)
+        return {"ok": True, "issues": [], "skipped": f"{type(e).__name__}"}

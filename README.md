@@ -37,6 +37,24 @@ Google notes:
 - The Google OAuth consent screen must be set to "In production". In "Testing" status the refresh token expires after 7 days.
 - Videos uploaded through an unverified API project are forced to private until the project passes the YouTube API audit.
 
+## Visual upgrades (v2)
+
+- Karaoke captions: each word highlights as it is spoken (`captions.style`).
+- Hook: a bold caption over the first seconds (`video.hook_seconds`).
+- Branding: accent colors, a logo watermark, a progress bar and an end card (`branding`).
+- Ken Burns motion on b-roll, capped at `broll.max_clips` clips (`broll.ken_burns`).
+- Fact check: a second model pass checks the script against the article (`llm.fact_check`).
+
+To add a watermark logo:
+
+```
+mkdir -p /opt/cybershorts/data/brand
+cp logo.png /opt/cybershorts/data/brand/logo.png     # square PNG
+chown -R cybershorts:cybershorts /opt/cybershorts/data/brand
+```
+
+Every feature can be switched off in `config.yaml`: `captions.style: plain`, `video.hook_seconds: 0`, `branding.progress_bar: false`, `branding.end_card: false`, `llm.fact_check: false`.
+
 ## Commands
 
 ```

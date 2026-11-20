@@ -54,14 +54,14 @@ def _pixabay_pick(hits: list, require: list | None = None, exclude: list | None 
     return cands
 
 
-def _pixabay_search(key: str, query: str, require=None, exclude=None) -> str | None:
+def _pixabay_search(key: str, query: str, require=None, exclude=None, skip=None) -> str | None:
     r = requests.get(
         PIXABAY_URL,
         params={"key": key, "q": query[:100], "safesearch": "true", "per_page": 20, "order": "popular"},
         timeout=20,
     )
     r.raise_for_status()
-    cands = _pixabay_pick(r.json().get("hits", []), require, exclude)
+    cands = [c for c in _pixabay_pick(r.json().get("hits", []), require, exclude) if c not in (skip or ())]
     return random.choice(cands[:8]) if cands else None
 
 
@@ -82,7 +82,7 @@ def _pexels_pick(videos: list) -> list[str]:
     return [link for _, link in cands]
 
 
-def _pexels_search(key: str, query: str, require=None, exclude=None) -> str | None:
+def _pexels_search(key: str, query: str, require=None, exclude=None, skip=None) -> str | None:
     r = requests.get(
         PEXELS_URL,
         params={"query": query, "orientation": "portrait", "per_page": 15},
@@ -90,7 +90,7 @@ def _pexels_search(key: str, query: str, require=None, exclude=None) -> str | No
         timeout=20,
     )
     r.raise_for_status()
-    cands = _pexels_pick(r.json().get("videos", []))
+    cands = [c for c in _pexels_pick(r.json().get("videos", [])) if c not in (skip or ())]
     return random.choice(cands[:8]) if cands else None
 
 
@@ -120,6 +120,78 @@ def _download(url: str, out_path: Path) -> None:
     tmp.replace(out_path)
 
 
+def _local_clips(cfg) -> list[Path]:
+    d = local_dir(cfg)
+    if not d.is_dir():
+        return []
+    return sorted(p for p in d.iterdir() if p.is_file() and p.suffix.lower() in VIDEO_EXTS)
+
+
+def _fetch_remote(cfg, provider: str, queries: list[str], out_path: Path, used: set) -> Path | None:
+    """Download one clip for the first query that yields a URL not in `used`. None if nothing found."""
+    searchers = {
+        "pixabay": (getattr(cfg, "pixabay_api_key", "") or "", _pixabay_search, "PIXABAY_API_KEY"),
+        "pexels": (getattr(cfg, "pexels_api_key", "") or "", _pexels_search, "PEXELS_API_KEY"),
+    }
+    if provider not in searchers:
+        return None
+    key, search, env_name = searchers[provider]
+    if not key:
+        log.warning("%s not set; using local b-roll folder", env_name)
+        return None
+    for q in queries:
+        if not q:
+            continue
+        try:
+            link = search(key, q, cfg.get("broll.require_tags") or None,
+                          cfg.get("broll.exclude_tags") or None, skip=used)
+            if not link:
+                log.info("No suitable %s video for %r", provider, q)
+                continue
+            _download(link, out_path)
+            used.add(link)
+            return out_path
+        except Exception as e:  # noqa: BLE001  (never log the URL: Pixabay keys ride in it)
+            log.warning("%s fetch failed for %r: %s", provider, q, type(e).__name__)
+    return None
+
+
+def fetch_broll_set(cfg, n: int, query: str, out_prefix) -> list[Path]:
+    """Up to `n` distinct clips (never the same download URL twice), files `{out_prefix}_{i}.mp4`.
+
+    Shortfalls are filled with distinct files from the local folder (returned in place, never
+    copied or deleted). Returns [] for provider none or when nothing is available."""
+    provider = str(cfg.get("broll.provider", "pixabay")).lower()
+    if provider == "none":
+        return []
+    n = min(int(n), int(cfg.get("broll.max_clips", 5) or 5))
+    if n <= 0:
+        return []
+    prefix = str(out_prefix)
+    pool = [str(q).strip() for q in (cfg.get("broll.queries") or []) if str(q).strip()]
+    if cfg.get("broll.match_story", False) or not pool:
+        queries = [query] * n
+    else:
+        picks = random.sample(pool, min(n, len(pool)))
+        queries = [picks[i % len(picks)] for i in range(n)]
+    if provider not in ("pixabay", "pexels", "local"):
+        log.warning("Unknown broll.provider %r; using local folder", provider)
+    clips: list[Path] = []
+    used: set = set()
+    if provider in ("pixabay", "pexels"):
+        for i in range(n):
+            got = _fetch_remote(cfg, provider, [queries[i], FALLBACK_QUERY], Path(f"{prefix}_{i}.mp4"), used)
+            if got:
+                clips.append(got)
+    if len(clips) < n:
+        free = [p for p in _local_clips(cfg) if p not in clips]
+        random.shuffle(free)
+        clips.extend(free[: n - len(clips)])
+    if not clips:
+        log.info("No b-roll clip available; using a plain background")
+    return clips
+
+
 def fetch_broll(cfg, query: str, out_path) -> Path | None:
     """Return a clip path to use as background, or None for a plain background.
 
@@ -132,28 +204,10 @@ def fetch_broll(cfg, query: str, out_path) -> Path | None:
         pool = [str(q).strip() for q in (cfg.get("broll.queries") or []) if str(q).strip()]
         if pool:
             query = random.choice(pool)
-    searchers = {
-        "pixabay": (getattr(cfg, "pixabay_api_key", "") or "", _pixabay_search, "PIXABAY_API_KEY"),
-        "pexels": (getattr(cfg, "pexels_api_key", "") or "", _pexels_search, "PEXELS_API_KEY"),
-    }
-    if provider in searchers:
-        key, search, env_name = searchers[provider]
-        if not key:
-            log.warning("%s not set; using local b-roll folder", env_name)
-        else:
-            for q in (query, FALLBACK_QUERY):
-                if not q:
-                    continue
-                try:
-                    link = search(key, q, cfg.get("broll.require_tags") or None,
-                                  cfg.get("broll.exclude_tags") or None)
-                    if not link:
-                        log.info("No suitable %s video for %r", provider, q)
-                        continue
-                    _download(link, out_path)
-                    return out_path
-                except Exception as e:  # noqa: BLE001  (never log the URL: Pixabay keys ride in it)
-                    log.warning("%s fetch failed for %r: %s", provider, q, type(e).__name__)
+    if provider in ("pixabay", "pexels"):
+        got = _fetch_remote(cfg, provider, [query, FALLBACK_QUERY], out_path, set())
+        if got:
+            return got
     elif provider != "local":
         log.warning("Unknown broll.provider %r; using local folder", provider)
     clip = pick_local(cfg)

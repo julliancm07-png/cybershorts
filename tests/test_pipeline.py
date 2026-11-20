@@ -199,7 +199,7 @@ class PipelineTests(unittest.TestCase):
         conn.close()
         self.cfg.raw.setdefault("broll", {})["provider"] = "pixabay" if broll else "none"
 
-        def fake_render(cfg, wav, ass, br, out):
+        def fake_render(cfg, wav, ass, br, out, beats=None):
             if render_side_effect and br:
                 raise RuntimeError("bad broll")
             Path(out).write_bytes(b"\0" * size)
@@ -213,14 +213,17 @@ class PipelineTests(unittest.TestCase):
         tg.send_message.return_value = {"message_id": 5}
         tg.send_video.return_value = {"message_id": 6}
         render_mock = mock.Mock(side_effect=fake)
+        clips = [Path("/nonexistent/b0.mp4"), Path("/nonexistent/b1.mp4")]
         with mock.patch("cybershorts.captions.transcribe_words", return_value=[(0.0, 0.5, "a")]), \
              mock.patch("cybershorts.captions.chunk_words", return_value=[]), \
-             mock.patch("cybershorts.captions.write_ass"), \
+             mock.patch("cybershorts.captions.beat_times", create=True, return_value=[0.0, 0.5]) as bt, \
+             mock.patch("cybershorts.captions.write_ass") as wa, \
              mock.patch("cybershorts.render.probe_duration", return_value=1.0), \
              mock.patch("cybershorts.render.render", render_mock), \
-             mock.patch("cybershorts.visuals.fetch_broll", return_value=Path("/nonexistent/b.mp4")), \
+             mock.patch("cybershorts.visuals.fetch_broll_set", return_value=clips) as fs, \
              mock.patch.object(self.pipeline, "_telegram", return_value=tg):
             self.pipeline.render_draft(self.cfg, self.id)
+        self.mocks = {"beat_times": bt, "write_ass": wa, "fetch_broll_set": fs}
         return tg, render_mock
 
     def test_render_small_video_sent_as_video(self):
@@ -242,6 +245,64 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(render_mock.call_count, 2)
         self.assertIsNone(render_mock.call_args_list[1][0][3])
         tg.send_video.assert_called_once()
+
+    def test_render_uses_v2_interfaces(self):
+        _, render_mock = self._run_render(10)
+        self.mocks["beat_times"].assert_called_once()
+        n_args, _ = self.mocks["fetch_broll_set"].call_args
+        self.assertEqual(n_args[1], 2)  # one clip per beat
+        self.assertTrue(str(n_args[3]).endswith("draft_1_broll"))
+        kw = self.mocks["write_ass"].call_args.kwargs
+        self.assertEqual(kw["beats"], [0.0, 0.5])
+        self.assertEqual(kw["words"], [(0.0, 0.5, "a")])
+        self.assertIn("keywords", kw)
+        args, rkw = render_mock.call_args
+        self.assertEqual(len(args[3]), 2)
+        self.assertEqual(rkw["beats"], [0.0, 0.5])
+
+    def test_render_no_broll_provider_none(self):
+        _, render_mock = self._run_render(10, broll=False)
+        self.mocks["fetch_broll_set"].assert_not_called()
+        self.assertIsNone(render_mock.call_args[0][3])
+
+    def test_caption_fact_check_lines_and_limit(self):
+        P = self.pipeline
+        base = {"on_screen_title": "T <x>", "script": "word " * 80, "description": "D. Source: u",
+                "hashtags": ["a"]}
+        ok = P._telegram_caption(dict(base, fact_check={"ok": True, "issues": []}), "http://x", 1)
+        self.assertIn("✅ Fact-check: nothing unsupported found", ok)
+        self.assertIn("&lt;x&gt;", ok)
+        bad = P._telegram_caption(dict(base, fact_check={"ok": False, "issues": ["Says <b>9.8</b> & more"]}),
+                                  "http://x", 1)
+        self.assertIn("⚠️ Fact-check:", bad)
+        self.assertIn("• Says &lt;b&gt;9.8&lt;/b&gt; &amp; more", bad)
+        sk = P._telegram_caption(dict(base, fact_check={"ok": True, "issues": [], "skipped": "x"}), "http://x", 1)
+        self.assertIn("ℹ️ Fact-check skipped", sk)
+        self.assertIn("(x)", sk)
+        esc = P._telegram_caption(
+            dict(base, fact_check={"ok": True, "issues": [], "skipped": "<b>" + "y" * 200}), "http://x", 1)
+        self.assertIn("&lt;b&gt;", esc)
+        self.assertNotIn("y" * 81, esc)
+        self.assertNotIn("Fact-check", P._telegram_caption(base, "http://x", 1))
+        many = dict(base, script="word " * 200,
+                    fact_check={"ok": False, "issues": ["issue %d " % i + "z" * 125 for i in range(5)]})
+        cap = P._telegram_caption(many, "http://x", 1)
+        self.assertLessEqual(len(cap), 1024)
+        self.assertIn("• issue 0", cap)
+
+    def test_cleanup_removes_numbered_broll(self):
+        work = self.cfg.path("work")
+        names = ["draft_1_broll_0.mp4", "draft_1_broll_1.mp4", "draft_12_broll_0.mp4"]
+        for n in names:
+            (work / n).write_bytes(b"x")
+        conn = self.db.connect(self.cfg)
+        self.db.update_draft(conn, self.id, status="rejected")
+        conn.execute("UPDATE drafts SET updated_at='2000-01-01T00:00:00' WHERE id=?", (self.id,))
+        conn.commit()
+        conn.close()
+        self.pipeline.cleanup(self.cfg)
+        self.assertFalse((work / names[0]).exists() or (work / names[1]).exists())
+        self.assertTrue((work / names[2]).exists())
 
     def test_keyboard_remaining_targets(self):
         from cybershorts.telegram import keyboard

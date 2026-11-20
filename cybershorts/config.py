@@ -20,7 +20,7 @@ DEFAULTS: dict[str, Any] = {
         {"name": "CISA", "url": "https://www.cisa.gov/cybersecurity-advisories/all.xml"},
     ],
     "news": {"max_age_hours": 36, "max_candidates": 25, "fetch_full_text": True, "max_article_chars": 6000},
-    "llm": {"model": "anthropic/claude-haiku-4.5", "temperature": 0.6, "target_words": [80, 110], "style_notes": "", "provider": {"sort": "price"}},
+    "llm": {"model": "anthropic/claude-haiku-4.5", "temperature": 0.6, "target_words": [65, 95], "style_notes": "", "provider": {"sort": "price"}, "fact_check": True, "fact_check_model": ""},
     "voice": {
         "mode": "tts",
         "engine": "kokoro",
@@ -35,11 +35,22 @@ DEFAULTS: dict[str, Any] = {
         "polish": True,
         "pronunciations": {"CISA": "Sisa", "SQL": "sequel", "SaaS": "sass", "macOS": "mac O S", "iOS": "eye O S", "2FA": "two factor", "MFA": "M F A", "NIST": "nist", "OAuth": "oh auth", "SSO": "S S O", "DDoS": "D DOS", "LLM": "L L M", "LLMs": "L L Ms", "APT": "A P T"},
     },
-    "captions": {"whisper_model": "base.en", "words_per_chunk": 3, "font": "DejaVu Sans", "font_size": 92},
-    "video": {"width": 1080, "height": 1920, "fps": 30, "crf": 23, "preset": "veryfast", "darken": 0.35},
+    "captions": {"whisper_model": "base.en", "words_per_chunk": 3, "font": "DejaVu Sans", "font_size": 92, "style": "karaoke"},
+    "video": {"width": 1080, "height": 1920, "fps": 30, "crf": 23, "preset": "veryfast", "darken": 0.35, "hook_seconds": 1.6},
+    "branding": {
+        "accent": "#3DDCFF",
+        "keyword_color": "#FFD60A",
+        "watermark": "brand/logo.png",
+        "watermark_size": 150,
+        "watermark_opacity": 0.85,
+        "progress_bar": True,
+        "end_card": True,
+    },
     "broll": {
         "provider": "pixabay",
         "local_dir": "broll",
+        "max_clips": 5,
+        "ken_burns": True,
         "match_story": False,
         "queries": [
             "cyber security", "hacker code", "binary code", "matrix code", "data network",
@@ -80,7 +91,7 @@ SECRET_KEYS = [
     "HEALTHCHECK_URL",
 ]
 
-DATA_SUBDIRS = ("videos", "voices", "models", "work", "broll")
+DATA_SUBDIRS = ("videos", "voices", "models", "work", "broll", "brand")
 
 
 def deep_merge(base: dict, override: dict) -> dict:
