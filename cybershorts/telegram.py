@@ -4,6 +4,7 @@ from __future__ import annotations
 import html
 import json
 import logging
+import time
 from pathlib import Path
 
 import requests
@@ -11,6 +12,7 @@ import requests
 log = logging.getLogger(__name__)
 
 API = "https://api.telegram.org"
+RETRY_DELAYS = (3, 8, 20)  # seconds between attempts on network errors
 
 
 def esc(text: str) -> str:
@@ -46,13 +48,43 @@ class Telegram:
         self.base = f"{API}/bot{token}"
 
     # -- internals -------------------------------------------------------
-    def _call(self, method: str, data=None, files=None, timeout: int = 30):
+    def _why(self, e: Exception) -> str:
+        """Short, token-free description of a network error (e.g. DNS vs. reset)."""
+        detail = str(e).replace(self.token, "***")
+        for hint in ("NameResolutionError", "Failed to resolve", "Connection reset", "Connection refused",
+                     "Network is unreachable", "timed out", "RemoteDisconnected", "Max retries"):
+            if hint in detail:
+                return f"{type(e).__name__} ({hint})"
+        return type(e).__name__
+
+    def _call(self, method: str, data=None, files=None, timeout: int = 30, retries: bool = True):
+        """POST to the Bot API. `files` may be a dict or a zero-arg callable returning one
+        (so file uploads can be re-opened on retry). Network errors are retried."""
         url = f"{self.base}/{method}"
-        try:
-            r = requests.post(url, data=data, files=files, timeout=timeout)
-        except requests.RequestException as e:
-            # never leak the token in the message
-            raise RuntimeError(f"Telegram {method} request failed: {type(e).__name__}") from None
+        delays = RETRY_DELAYS if retries else ()
+        attempt = 0
+        while True:
+            try:
+                f = files() if callable(files) else files
+                try:
+                    r = requests.post(url, data=data, files=f, timeout=timeout)
+                finally:
+                    if callable(files) and f:
+                        for v in f.values():
+                            fh = v[1] if isinstance(v, tuple) else v
+                            if hasattr(fh, "close"):
+                                fh.close()
+                break
+            except (requests.ConnectionError, requests.Timeout) as e:
+                why = self._why(e)
+                if attempt >= len(delays):
+                    # never leak the token in the message
+                    raise RuntimeError(f"Telegram {method} request failed: {why}") from None
+                log.warning("Telegram %s failed (%s); retrying in %ss", method, why, delays[attempt])
+                time.sleep(delays[attempt])
+                attempt += 1
+            except requests.RequestException as e:
+                raise RuntimeError(f"Telegram {method} request failed: {self._why(e)}") from None
         try:
             payload = r.json()
         except ValueError:
@@ -95,8 +127,9 @@ class Telegram:
         }
         if reply_markup:
             data["reply_markup"] = self._markup(reply_markup)
-        with open(path, "rb") as f:
-            return self._call("sendVideo", data=data, files={"video": (Path(path).name, f, "video/mp4")}, timeout=300)
+        name = Path(path).name
+        return self._call("sendVideo", data=data, timeout=300,
+                          files=lambda: {"video": (name, open(path, "rb"), "video/mp4")})
 
     def edit_caption(self, message_id, caption: str, reply_markup=None) -> dict:
         data = {
@@ -127,7 +160,7 @@ class Telegram:
         data = {"timeout": timeout, "allowed_updates": json.dumps(["message", "callback_query"])}
         if offset is not None:
             data["offset"] = offset
-        return self._call("getUpdates", data=data, timeout=timeout + 10) or []
+        return self._call("getUpdates", data=data, timeout=timeout + 10, retries=False) or []  # bot loop retries
 
     def download_file(self, file_id: str, dest) -> Path:
         info = self._call("getFile", data={"file_id": file_id}, timeout=20)
