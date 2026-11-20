@@ -122,8 +122,13 @@ def validate_script(data: dict, story: dict, cfg: Config) -> dict:
             raise ValueError(f"Script JSON missing '{key}'")
     sign_off = cfg.get("channel.sign_off", "")
     script = str(data["script"]).strip()
-    if sign_off and sign_off.lower().rstrip(".!") not in script.lower():
-        script = f"{script}\n\n{sign_off}"
+    if sign_off:
+        if sign_off.lower().rstrip(".!") not in script.lower():
+            script = f"{script}\n\n{sign_off}"
+        elif script.lower().endswith(sign_off.lower()):
+            head = script[: len(script) - len(sign_off)]
+            if head.strip() and not head.endswith("\n\n"):
+                script = head.rstrip() + "\n\n" + sign_off
     tags_raw = data.get("hashtags") or []
     if isinstance(tags_raw, str):
         tags_raw = re.split(r"[\s,]+", tags_raw)
@@ -232,9 +237,11 @@ def fact_check(cfg: Config, story: dict, data: dict) -> dict:
     """Check the script against the source. Returns {"ok": bool, "issues": [...]}.
     Never raises: any failure gives {"ok": True, "issues": [], "skipped": reason}."""
     try:
-        source = str(story.get("article") or "").strip()
-        if not source:
-            source = f"{story.get('title', '')}\n{story.get('summary', '')}".strip()
+        source = f"{story.get('title', '')}\n{story.get('summary', '')}".strip()
+        article = str(story.get("article") or "").strip()
+        if article:
+            source = f"{source}\n\n{article}"
+        sign_off = str(cfg.get("channel.sign_off", "") or "").strip()
         claims = (f"on_screen_title: {data.get('on_screen_title', '')}\n"
                   f"script: {data.get('script', '')}\n"
                   f"description: {data.get('description', '')}")
@@ -243,7 +250,8 @@ def fact_check(cfg: Config, story: dict, data: dict) -> dict:
             "List each claim in the script, on_screen_title or description that the source does not support. "
             "Rephrasing, simplification and summary are supported; only flag facts (numbers, names, "
             "versions, dates, who/what is affected, exploitation status) that the source does not state "
-            "or that it contradicts. Ignore tone, the hook's framing and the sign-off.\n\n"
+            "or that it contradicts. Ignore tone, the hook's framing and the sign-off"
+            + (f' (the sign-off is: "{sign_off}"; ignore it entirely)' if sign_off else "") + ".\n\n"
             f"SOURCE:\n{source}\n\nVIDEO TEXT:\n{claims}\n\n"
             'Return JSON only: {"issues": ["short description of each unsupported claim", ...]} '
             "with at most 5 issues, each under 140 characters. Use an empty list if everything is supported."

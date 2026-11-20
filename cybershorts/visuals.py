@@ -35,20 +35,26 @@ def tags_ok(tags: str, require: list | None, exclude: list | None) -> bool:
 
 def _pixabay_pick(hits: list, require: list | None = None, exclude: list | None = None) -> list[str]:
     """Pick one download URL per hit. Pixabay clips are mostly landscape; the renderer
-    crops to 9:16, so prefer the tallest rendition between 720 and 2160 px high."""
+    crops to 9:16, so prefer the tallest rendition 720-1920 px high (width <= 1920, so no 4K when smaller exists)."""
     cands = []
     for hit in hits:
         if not tags_ok(hit.get("tags", ""), require, exclude):
             continue
         best = None
-        for size in ("large", "medium", "small"):
+        fallback = None
+        for size in ("large", "medium", "small", "tiny"):
             v = (hit.get("videos") or {}).get(size) or {}
-            url, h = v.get("url"), v.get("height") or 0
-            if url and 720 <= h <= 2160:
-                portrait_bonus = 400 if h > (v.get("width") or 0) else 0
-                score = h + portrait_bonus
+            url, h, w = v.get("url"), v.get("height") or 0, v.get("width") or 0
+            if not url:
+                continue
+            if 720 <= h <= 1920 and w <= 1920:
+                score = h + (400 if h > w else 0)
                 if best is None or score > best[0]:
                     best = (score, url)
+            elif h >= 720 and (fallback is None or h < fallback[0]):
+                fallback = (h, url)  # e.g. 4K only: smallest oversized rendition
+        if best is None and fallback:
+            best = (0, fallback[1])
         if best:
             cands.append(best[1])
     return cands
@@ -137,7 +143,6 @@ def _fetch_remote(cfg, provider: str, queries: list[str], out_path: Path, used: 
         return None
     key, search, env_name = searchers[provider]
     if not key:
-        log.warning("%s not set; using local b-roll folder", env_name)
         return None
     for q in queries:
         if not q:
@@ -164,7 +169,9 @@ def fetch_broll_set(cfg, n: int, query: str, out_prefix) -> list[Path]:
     provider = str(cfg.get("broll.provider", "pixabay")).lower()
     if provider == "none":
         return []
-    n = min(int(n), int(cfg.get("broll.max_clips", 5) or 5))
+    raw_max = cfg.get("broll.max_clips", 5)
+    max_clips = 5 if raw_max is None else int(raw_max)
+    n = min(int(n), max_clips if max_clips > 0 else 1)
     if n <= 0:
         return []
     prefix = str(out_prefix)
@@ -179,7 +186,13 @@ def fetch_broll_set(cfg, n: int, query: str, out_prefix) -> list[Path]:
     clips: list[Path] = []
     used: set = set()
     if provider in ("pixabay", "pexels"):
-        for i in range(n):
+        key_attr = f"{provider}_api_key"
+        if not (getattr(cfg, key_attr, "") or ""):
+            log.warning("%s not set; using local b-roll folder", key_attr.upper())
+            n_remote = 0
+        else:
+            n_remote = n
+        for i in range(n_remote):
             got = _fetch_remote(cfg, provider, [queries[i], FALLBACK_QUERY], Path(f"{prefix}_{i}.mp4"), used)
             if got:
                 clips.append(got)
@@ -205,9 +218,12 @@ def fetch_broll(cfg, query: str, out_path) -> Path | None:
         if pool:
             query = random.choice(pool)
     if provider in ("pixabay", "pexels"):
-        got = _fetch_remote(cfg, provider, [query, FALLBACK_QUERY], out_path, set())
-        if got:
-            return got
+        if not (getattr(cfg, f"{provider}_api_key", "") or ""):
+            log.warning("%s_API_KEY not set; using local b-roll folder", provider.upper())
+        else:
+            got = _fetch_remote(cfg, provider, [query, FALLBACK_QUERY], out_path, set())
+            if got:
+                return got
     elif provider != "local":
         log.warning("Unknown broll.provider %r; using local folder", provider)
     clip = pick_local(cfg)

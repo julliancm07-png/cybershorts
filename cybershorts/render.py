@@ -48,9 +48,23 @@ def _watermark_path(cfg: Config) -> Path | None:
     return p.resolve() if p.is_file() else None
 
 
+def _logo_ok(path: Path) -> bool:
+    """Quick sanity check (ffprobe, 10 s cap) so a corrupt logo can never stall ffmpeg."""
+    try:
+        r = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
+             "-of", "csv=p=0", str(path)],
+            capture_output=True, text=True, timeout=10,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return False
+    parts = r.stdout.strip().split(",")
+    return r.returncode == 0 and len(parts) >= 2 and all(p.strip().isdigit() and int(p) > 0 for p in parts[:2])
+
+
 def render(cfg: Config, audio_wav: Path | str, ass_path: Path | str,
            broll: Path | str | list[Path | str] | None, out_mp4: Path | str, *,
-           beats: list[float] | None = None) -> Path:
+           beats: list[float] | None = None, watermark: bool = True) -> Path:
     w = int(cfg.get("video.width", 1080))
     h = int(cfg.get("video.height", 1920))
     fps = int(cfg.get("video.fps", 30))
@@ -85,7 +99,10 @@ def render(cfg: Config, audio_wav: Path | str, ass_path: Path | str,
             inputs += ["-stream_loop", "-1", "-t", f"{seg + 0.5:.3f}", "-i", str(clip)]
             if ken_burns:
                 bw, bh = int(round(w * 1.12 / 2) * 2), int(round(h * 1.12 / 2) * 2)
-                x = f"(iw-ow)*t/{seg:.3f}" if i % 2 == 0 else f"(iw-ow)*(1-t/{seg:.3f})"
+                span = bw - w  # = iw-ow after the scale
+                travel = min(span, 0.12 * w)
+                sign = 1 if i % 2 == 0 else -1
+                x = (f"min(max({span / 2:.2f}+{sign * travel:.2f}*(t/{seg:.3f}-0.5),0),{span})")
                 geo = (f"scale={bw}:{bh}:force_original_aspect_ratio=increase:force_divisible_by=2,"
                        f"crop={w}:{h}:x='{x}':y='(ih-oh)/2'")
             else:
@@ -103,14 +120,17 @@ def render(cfg: Config, audio_wav: Path | str, ass_path: Path | str,
         graph.append("[0:v]setsar=1[bg]")
         n_inputs = 1
 
-    wm = _watermark_path(cfg)
+    wm = _watermark_path(cfg) if watermark else None
+    if wm and not _logo_ok(wm):
+        log.warning("Watermark %s is not a valid image; rendering without it", wm)
+        wm = None
     last = "bg"
     if wm:
         size = int(cfg.get("branding.watermark_size", 150))
         opacity = float(cfg.get("branding.watermark_opacity", 0.85))
-        inputs += ["-loop", "1", "-t", f"{total:.3f}", "-i", str(wm)]
+        inputs += ["-i", str(wm)]
         graph.append(f"[{n_inputs}:v]scale={size}:-1,format=rgba,colorchannelmixer=aa={opacity:.2f}[wm]")
-        graph.append("[bg][wm]overlay=x=W-w-36:y=36:shortest=1:eof_action=pass[ov]")
+        graph.append("[bg][wm]overlay=x=W-w-36:y=36[ov]")
         last = "ov"
         n_inputs += 1
     graph.append(f"[{last}]format=yuv420p,ass={ass.name}[v]")

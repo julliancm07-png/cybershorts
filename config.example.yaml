@@ -89,8 +89,8 @@ video:
 
 # On-screen branding. Logo file lives in data/brand/ (see README).
 branding:
-  accent: "#3DDCFF"        # accent color for bars and highlights
-  keyword_color: "#FFD60A" # color of the highlighted caption word
+  accent: "#3DDCFF"        # colour of the currently spoken word, the progress bar and the end-card "FOLLOW"
+  keyword_color: "#FFD60A" # colour of emphasized keywords and the hook title
   watermark: "brand/logo.png" # path relative to data/; empty = no logo
   watermark_size: 150      # logo width in pixels
   watermark_opacity: 0.85  # 0 to 1

@@ -205,6 +205,24 @@ def _fail(cfg: Config, draft_id: int, err: Exception) -> None:
     _notify(cfg, f"Draft {draft_id} failed: {str(err)[:500]}")
 
 
+def _cleanup_broll(cfg: Config, draft_id: int, clips: list[Path]) -> None:
+    """Delete downloaded b-roll for this draft; never touch files outside the work dir."""
+    work = cfg.path("work").resolve()
+    victims = list(work.glob(f"draft_{draft_id}_broll_*.mp4")) + list(work.glob(f"draft_{draft_id}_broll_*.part"))
+    for c in clips:
+        try:
+            if Path(c).resolve().parent == work:
+                victims.append(Path(c))
+        except OSError:
+            pass
+    for v in set(victims):
+        try:
+            if v.resolve().parent == work:
+                v.unlink()
+        except OSError as e:
+            log.warning("Could not delete %s: %s", v.name, e)
+
+
 def render_draft(cfg: Config, draft_id: int) -> Path:
     conn = db.connect(cfg)
     try:
@@ -245,7 +263,8 @@ def render_draft(cfg: Config, draft_id: int) -> Path:
             if not clips:
                 raise
             log.warning("Render with b-roll failed (%s); retrying without b-roll", e)
-            render.render(cfg, wav, ass, None, out, beats=beats)
+            render.render(cfg, wav, ass, None, out, beats=beats, watermark=False)
+        _cleanup_broll(cfg, draft_id, clips)
 
         from .telegram import keyboard
 

@@ -29,7 +29,7 @@ class VisualsTests(unittest.TestCase):
             "medium": {"url": "M", "width": 1920, "height": 1080},
             "small": {"url": "S", "width": 1280, "height": 720}}},
             {"videos": {"small": {"url": "tiny", "width": 640, "height": 360}}}]
-        self.assertEqual(self.v._pixabay_pick(hits), ["L"])
+        self.assertEqual(self.v._pixabay_pick(hits), ["M"])
 
     def test_pixabay_success_downloads(self):
         resp = mock.Mock()

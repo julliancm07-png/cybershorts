@@ -249,7 +249,8 @@ def build_ass(chunks: list[Chunk], cfg: Config, title: str, handle: str, duratio
     end_all = format_ass_time(dur)
     lines = [header]
 
-    show_end_card = bool(end_card_on and beats and len(beats) >= 2 and 0 < beats[-1] < dur)
+    show_end_card = bool(end_card_on and beats and len(beats) >= 2 and 0 < beats[-1] < dur
+                         and dur - beats[-1] <= 4.5)
     title_start = min(hook_s, dur) if (title and hook_s > 0) else 0.0
     title_end = beats[-1] if show_end_card else dur  # type: ignore[index]
     if title and hook_s > 0:

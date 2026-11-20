@@ -19,7 +19,6 @@ SCRIPT = (
 )
 KEYWORDS = ["VPN appliance", "patch"]
 AUDIO_SECONDS = 7.0
-FRAMES_DIR = Path("/tmp/v2frames")
 
 
 def ff(*args: str) -> None:
@@ -117,10 +116,11 @@ def main() -> int:
             assert (sw, sh) == (1080, 1920), "%s: bad size %dx%d" % (label, sw, sh)
             assert abs(sd - expect) < 0.35, "%s: duration %.2f, expected ~%.2f" % (label, sd, expect)
 
-    FRAMES_DIR.mkdir(parents=True, exist_ok=True)
+    frames_dir = Path(tmp.name) / "frames"
+    frames_dir.mkdir(parents=True, exist_ok=True)
     for name, t in (("hook", 0.5), ("karaoke", 3.0), ("endcard", expect - 1.2)):
-        ff("-ss", f"{t:.2f}", "-i", str(out), "-frames:v", "1", str(FRAMES_DIR / f"{name}.png"))
-    print("OK %dx%d %.2fs (expected ~%.2f) frames in %s" % (w, h, dur, expect, FRAMES_DIR))
+        ff("-ss", f"{t:.2f}", "-i", str(out), "-frames:v", "1", str(frames_dir / f"{name}.png"))
+    print("OK %dx%d %.2fs (expected ~%.2f); frames rendered and discarded" % (w, h, dur, expect))
     tmp.cleanup()
     return 0
 

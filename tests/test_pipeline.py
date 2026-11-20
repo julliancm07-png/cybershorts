@@ -199,7 +199,7 @@ class PipelineTests(unittest.TestCase):
         conn.close()
         self.cfg.raw.setdefault("broll", {})["provider"] = "pixabay" if broll else "none"
 
-        def fake_render(cfg, wav, ass, br, out, beats=None):
+        def fake_render(cfg, wav, ass, br, out, beats=None, **kw):
             if render_side_effect and br:
                 raise RuntimeError("bad broll")
             Path(out).write_bytes(b"\0" * size)
