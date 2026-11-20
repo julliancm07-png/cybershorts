@@ -20,7 +20,7 @@ DEFAULTS: dict[str, Any] = {
         {"name": "CISA", "url": "https://www.cisa.gov/cybersecurity-advisories/all.xml"},
     ],
     "news": {"max_age_hours": 36, "max_candidates": 25, "fetch_full_text": True, "max_article_chars": 6000},
-    "llm": {"model": "anthropic/claude-haiku-4.5", "temperature": 0.6, "target_words": [80, 110], "style_notes": ""},
+    "llm": {"model": "anthropic/claude-haiku-4.5", "temperature": 0.6, "target_words": [80, 110], "style_notes": "", "provider": {"sort": "price"}},
     "voice": {
         "mode": "tts",
         "engine": "kokoro",

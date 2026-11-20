@@ -23,6 +23,10 @@ def chat(cfg: Config, messages: list[dict], temperature: float | None = None) ->
         "temperature": cfg.get("llm.temperature", 0.5) if temperature is None else temperature,
         "messages": messages,
     }
+    routing = cfg.get("llm.provider") or {}
+    if routing:
+        # OpenRouter provider routing, e.g. {"sort": "price"} = always use the cheapest host
+        payload["provider"] = dict(routing)
     headers = {
         "Authorization": f"Bearer {cfg.openrouter_api_key}",
         "X-Title": "cybershorts",
@@ -47,7 +51,13 @@ def chat(cfg: Config, messages: list[dict], temperature: float | None = None) ->
         if not r.ok:
             raise RuntimeError(f"OpenRouter error: HTTP {r.status_code} {r.text[:300]}")
         try:
-            return r.json()["choices"][0]["message"]["content"] or ""
+            body = r.json()
+            usage = body.get("usage") or {}
+            log.info("OpenRouter: %s via %s, %s in / %s out tokens%s",
+                     body.get("model", payload["model"]), body.get("provider", "?"),
+                     usage.get("prompt_tokens", "?"), usage.get("completion_tokens", "?"),
+                     f", ${usage['cost']:.5f}" if isinstance(usage.get("cost"), (int, float)) else "")
+            return body["choices"][0]["message"]["content"] or ""
         except (KeyError, IndexError, ValueError) as e:
             raise RuntimeError(f"Unexpected OpenRouter response: {r.text[:300]}") from e
     raise RuntimeError(f"OpenRouter error: {last_err}")

@@ -44,3 +44,22 @@ class ExtractJsonTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ChatPayloadTests(unittest.TestCase):
+    def test_provider_routing_sent(self):
+        import os
+        import tempfile
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as d:
+            os.environ["APP_DIR"] = d
+            from cybershorts import config, writer
+            cfg = config.load()
+            cfg.openrouter_api_key = "k"
+            resp = mock.Mock(status_code=200, ok=True)
+            resp.json.return_value = {"model": "m", "provider": "Cheapo",
+                                      "usage": {"prompt_tokens": 10, "completion_tokens": 5, "cost": 0.0001},
+                                      "choices": [{"message": {"content": "hi"}}]}
+            with mock.patch.object(writer.requests, "post", return_value=resp) as post:
+                self.assertEqual(writer.chat(cfg, [{"role": "user", "content": "x"}]), "hi")
+            self.assertEqual(post.call_args.kwargs["json"]["provider"], {"sort": "price"})

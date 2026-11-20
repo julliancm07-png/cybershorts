@@ -25,11 +25,16 @@ news:
 
 # OpenRouter model used to pick a story and write the script.
 llm:
-  model: "anthropic/claude-haiku-4.5"   # for smoother scripts try "anthropic/claude-sonnet-4.5" (~$2/month)
+  model: "anthropic/claude-haiku-4.5"   # any OpenRouter model ID, e.g. "deepseek/deepseek-v4.1-flash-1017"
   temperature: 0.6
   target_words: [80, 110]  # spoken script length range
   # Extra guidance added to every script prompt, e.g. "a bit of dry humor; always end with one practical tip"
   style_notes: ""
+  # OpenRouter host routing. sort: price = always the cheapest host for the model
+  # (other values: throughput, latency). Add data_collection: deny to skip hosts
+  # that may train on prompts (can cost a little more).
+  provider:
+    sort: price
 
 # Narration. mode: tts (AI voice) or record (you send a Telegram voice message).
 voice:
