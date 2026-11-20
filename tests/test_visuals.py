@@ -33,7 +33,7 @@ class VisualsTests(unittest.TestCase):
 
     def test_pixabay_success_downloads(self):
         resp = mock.Mock()
-        resp.json.return_value = {"hits": [{"videos": {"medium": {"url": "U", "width": 1920, "height": 1080}}}]}
+        resp.json.return_value = {"hits": [{"tags": "cyber, security, code", "videos": {"medium": {"url": "U", "width": 1920, "height": 1080}}}]}
         with mock.patch.object(self.v.requests, "get", return_value=resp) as g, \
              mock.patch.object(self.v, "_download") as dl:
             out = self.v.fetch_broll(self.cfg, "server room", self.out)
@@ -70,7 +70,7 @@ class QueryPoolTests(VisualsTests):
     def test_generic_pool_used_by_default(self):
         self.cfg.raw["broll"]["queries"] = ["neon lines"]
         resp = mock.Mock()
-        resp.json.return_value = {"hits": [{"videos": {"medium": {"url": "U", "width": 1920, "height": 1080}}}]}
+        resp.json.return_value = {"hits": [{"tags": "cyber, security, code", "videos": {"medium": {"url": "U", "width": 1920, "height": 1080}}}]}
         with mock.patch.object(self.v.requests, "get", return_value=resp) as g, mock.patch.object(self.v, "_download"):
             self.v.fetch_broll(self.cfg, "apache roller exploit", self.out)
         self.assertEqual(g.call_args_list[0].kwargs["params"]["q"], "neon lines")
@@ -78,7 +78,24 @@ class QueryPoolTests(VisualsTests):
     def test_match_story_uses_story_query(self):
         self.cfg.raw["broll"]["match_story"] = True
         resp = mock.Mock()
-        resp.json.return_value = {"hits": [{"videos": {"medium": {"url": "U", "width": 1920, "height": 1080}}}]}
+        resp.json.return_value = {"hits": [{"tags": "cyber, security, code", "videos": {"medium": {"url": "U", "width": 1920, "height": 1080}}}]}
         with mock.patch.object(self.v.requests, "get", return_value=resp) as g, mock.patch.object(self.v, "_download"):
             self.v.fetch_broll(self.cfg, "server room", self.out)
         self.assertEqual(g.call_args_list[0].kwargs["params"]["q"], "server room")
+
+
+class TagFilterTests(unittest.TestCase):
+    def test_tags_ok(self):
+        from cybershorts.visuals import tags_ok
+        req, exc = ["cyber", "code"], ["nature", "woman"]
+        self.assertTrue(tags_ok("cybersecurity, hacker, technology", req, exc))
+        self.assertFalse(tags_ok("forest, nature, green", req, exc))
+        self.assertFalse(tags_ok("code, woman, laptop", req, exc))
+        self.assertFalse(tags_ok("sunset, beach", req, exc))
+        self.assertTrue(tags_ok("anything", None, None))
+
+    def test_pick_skips_off_theme(self):
+        from cybershorts.visuals import _pixabay_pick
+        hits = [{"tags": "flower, nature", "videos": {"medium": {"url": "BAD", "width": 1920, "height": 1080}}},
+                {"tags": "binary, code", "videos": {"medium": {"url": "GOOD", "width": 1920, "height": 1080}}}]
+        self.assertEqual(_pixabay_pick(hits, ["code"], ["nature"]), ["GOOD"])

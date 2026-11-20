@@ -136,6 +136,10 @@ def make_draft(cfg: Config) -> int | None:
             idx = writer.pick_story(cfg, candidates, db.recent_used_titles(conn, 10))
             story = candidates[idx]
             log.info("Picked story: %s", story["title"])
+            if cfg.get("news.fetch_full_text", True):
+                from . import article
+                story = dict(story, article=article.fetch_text(
+                    story["url"], int(cfg.get("news.max_article_chars", 6000))))
             data = writer.write_script(cfg, story)
         except Exception as e:
             log.error("Draft creation failed before draft row: %s", _short_error(cfg, e))

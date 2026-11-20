@@ -16,15 +16,30 @@ log = logging.getLogger(__name__)
 PIXABAY_URL = "https://pixabay.com/api/videos/"
 PEXELS_URL = "https://api.pexels.com/videos/search"
 VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".webm", ".mkv"}
-FALLBACK_QUERY = "technology"
+FALLBACK_QUERY = "cyber security"
 
 
 # ---------- Pixabay ----------
-def _pixabay_pick(hits: list) -> list[str]:
+def tags_ok(tags: str, require: list | None, exclude: list | None) -> bool:
+    """Keep a clip only if its tags look cyber/tech and contain nothing off-theme.
+    `require` matches as a substring (so "cyber" matches "cybersecurity");
+    `exclude` matches whole tag words."""
+    t = (tags or "").lower()
+    words = {w for w in t.replace(",", " ").split() if w}
+    if exclude and any(str(x).lower() in words for x in exclude):
+        return False
+    if require and not any(str(x).lower() in t for x in require):
+        return False
+    return True
+
+
+def _pixabay_pick(hits: list, require: list | None = None, exclude: list | None = None) -> list[str]:
     """Pick one download URL per hit. Pixabay clips are mostly landscape; the renderer
     crops to 9:16, so prefer the tallest rendition between 720 and 2160 px high."""
     cands = []
     for hit in hits:
+        if not tags_ok(hit.get("tags", ""), require, exclude):
+            continue
         best = None
         for size in ("large", "medium", "small"):
             v = (hit.get("videos") or {}).get(size) or {}
@@ -39,14 +54,14 @@ def _pixabay_pick(hits: list) -> list[str]:
     return cands
 
 
-def _pixabay_search(key: str, query: str) -> str | None:
+def _pixabay_search(key: str, query: str, require=None, exclude=None) -> str | None:
     r = requests.get(
         PIXABAY_URL,
         params={"key": key, "q": query[:100], "safesearch": "true", "per_page": 20, "order": "popular"},
         timeout=20,
     )
     r.raise_for_status()
-    cands = _pixabay_pick(r.json().get("hits", []))
+    cands = _pixabay_pick(r.json().get("hits", []), require, exclude)
     return random.choice(cands[:8]) if cands else None
 
 
@@ -67,7 +82,7 @@ def _pexels_pick(videos: list) -> list[str]:
     return [link for _, link in cands]
 
 
-def _pexels_search(key: str, query: str) -> str | None:
+def _pexels_search(key: str, query: str, require=None, exclude=None) -> str | None:
     r = requests.get(
         PEXELS_URL,
         params={"query": query, "orientation": "portrait", "per_page": 15},
@@ -130,7 +145,8 @@ def fetch_broll(cfg, query: str, out_path) -> Path | None:
                 if not q:
                     continue
                 try:
-                    link = search(key, q)
+                    link = search(key, q, cfg.get("broll.require_tags") or None,
+                                  cfg.get("broll.exclude_tags") or None)
                     if not link:
                         log.info("No suitable %s video for %r", provider, q)
                         continue

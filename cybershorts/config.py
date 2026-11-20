@@ -19,7 +19,7 @@ DEFAULTS: dict[str, Any] = {
         {"name": "Dark Reading", "url": "https://www.darkreading.com/rss.xml"},
         {"name": "CISA", "url": "https://www.cisa.gov/cybersecurity-advisories/all.xml"},
     ],
-    "news": {"max_age_hours": 36, "max_candidates": 25},
+    "news": {"max_age_hours": 36, "max_candidates": 25, "fetch_full_text": True, "max_article_chars": 6000},
     "llm": {"model": "anthropic/claude-haiku-4.5", "temperature": 0.6, "target_words": [80, 110], "style_notes": ""},
     "voice": {
         "mode": "tts",
@@ -40,9 +40,19 @@ DEFAULTS: dict[str, Any] = {
         "local_dir": "broll",
         "match_story": False,
         "queries": [
-            "abstract technology", "digital particles", "network connection", "data stream",
-            "circuit board", "binary code", "futuristic interface", "neon lines",
-            "abstract dark", "server room", "matrix code", "glowing particles",
+            "cyber security", "hacker code", "binary code", "matrix code", "data network",
+            "digital security", "computer code", "circuit board", "server data center",
+            "encryption", "programming code", "cyber technology",
+        ],
+        "require_tags": [
+            "cyber", "hacker", "hacking", "security", "code", "coding", "binary", "matrix",
+            "data", "digital", "network", "computer", "technology", "circuit", "server",
+            "programming", "encryption", "internet", "software", "virus", "malware",
+        ],
+        "exclude_tags": [
+            "nature", "flower", "animal", "food", "beach", "ocean", "sea", "forest", "landscape",
+            "mountain", "sky", "sunset", "woman", "girl", "baby", "child", "family", "wedding",
+            "christmas", "dog", "cat", "bird", "money", "coin", "bitcoin", "crypto",
         ],
     },
     "youtube": {

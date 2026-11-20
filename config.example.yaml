@@ -20,6 +20,8 @@ feeds:
 news:
   max_age_hours: 36        # ignore entries older than this
   max_candidates: 25       # cap on candidates passed to the picker
+  fetch_full_text: true    # read the whole article so scripts have real specifics
+  max_article_chars: 6000   # how much of it to send to the model
 
 # OpenRouter model used to pick a story and write the script.
 llm:
@@ -84,19 +86,23 @@ broll:
   # false: pick a random generic background from `queries` below (looks better, no odd matches).
   # true: search for a clip that matches the story.
   match_story: false
-  queries:
-    - abstract technology
-    - digital particles
-    - network connection
-    - data stream
-    - circuit board
+  queries:                # always cyber-themed searches; one is picked at random
+    - cyber security
+    - hacker code
     - binary code
-    - futuristic interface
-    - neon lines
-    - abstract dark
-    - server room
     - matrix code
-    - glowing particles
+    - data network
+    - digital security
+    - computer code
+    - circuit board
+    - server data center
+    - encryption
+    - programming code
+    - cyber technology
+  # A clip is used only if its Pixabay tags contain one of these...
+  require_tags: [cyber, hacker, hacking, security, code, coding, binary, matrix, data, digital, network, computer, technology, circuit, server, programming, encryption, internet, software, virus, malware]
+  # ...and none of these (keeps out nature, people, crypto coins, etc.)
+  exclude_tags: [nature, flower, animal, food, beach, ocean, sea, forest, landscape, mountain, sky, sunset, woman, girl, baby, child, family, wedding, christmas, dog, cat, bird, money, coin, bitcoin, crypto]
 
 # YouTube Shorts upload (Data API). Requires scripts/auth_youtube.py first.
 youtube:

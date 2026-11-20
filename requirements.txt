@@ -9,3 +9,4 @@ av<19  # PyAV 19 removed an argument faster-whisper 1.2 still uses
 google-api-python-client
 google-auth-oauthlib
 google-auth-httplib2
+trafilatura>=1.12

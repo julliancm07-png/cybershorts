@@ -157,12 +157,16 @@ def write_script(cfg: Config, story: dict) -> dict:
         "You write the narration for 30-45 second vertical news videos about IT and security, "
         "read aloud by a text-to-speech voice. Write for the ear, the way a sharp friend who works "
         "in IT would explain the story over coffee: conversational, confident, never stiff.\n"
-        "Facts: use ONLY what is in the provided title and summary. Never invent details, numbers, "
-        "names, CVE ids, dates or attributions. If something is unknown, leave it out."
+        "Facts: use ONLY what is in the provided title, summary and article text. Never invent "
+        "details, numbers, names, CVE ids, dates or attributions. If something is unknown, leave it out. "
+        "Write in your own words; never copy sentences from the article."
     )
     user = (
         f"Story title: {story['title']}\nSource: {story.get('source','')}\n"
         f"URL: {story['url']}\nSummary: {story.get('summary','')}\n\n"
+        + (f"Article text (for facts and specifics; pick the 2-3 that matter most to viewers):\n"
+           f"{story['article']}\n\n" if story.get("article") else "")
+        +
         "How the narration must sound:\n"
         "- Open with a hook a viewer can't scroll past: the stakes in plain words, not the headline.\n"
         "- Short sentences, mostly under 15 words. One idea per sentence. Use contractions. "
