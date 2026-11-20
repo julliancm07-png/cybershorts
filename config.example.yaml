@@ -41,10 +41,12 @@ voice:
   mode: tts
   engine: kokoro           # kokoro (natural, ~1x real time) or piper (faster, flatter)
   kokoro_voice: am_michael # try am_adam, am_eric, am_liam, am_onyx, af_heart, af_nicole, bm_george
-  speed: 1.05              # kokoro: >1 faster
+  speed: 1.0               # kokoro: >1 faster
   piper_voice: "en_US-ryan-high"
   length_scale: 0.92       # piper: >1 slower, <1 faster
-  sentence_pause: 0.22     # seconds of silence between sentences
+  chunking: paragraph      # paragraph = sentences flow naturally (recommended); sentence = one clip per sentence
+  room_tone_db: -62        # faint background in pauses instead of dead silence; null = pure silence
+  sentence_pause: 0.22     # seconds between sentences (sentence chunking only)
   paragraph_pause: 0.45    # ...and between paragraphs (beats) of the script
   polish: true             # trim, light compression, loudness-normalize
   # How the voice should SAY a word (captions still show the original spelling).

@@ -141,9 +141,10 @@ class _Piper:
 
 def _polish(raw: Path, out: Path) -> None:
     """Gentle cleanup: trim edges, de-rumble, light compression, loudness to -16 LUFS."""
-    af = ("silenceremove=start_periods=1:start_threshold=-50dB,"
-          "highpass=f=70,"
-          "acompressor=threshold=-20dB:ratio=2.5:attack=5:release=120:makeup=2,"
+    af = ("highpass=f=70,"
+          "equalizer=f=180:t=q:w=1.0:g=1.5,"          # a touch of chest warmth
+          "equalizer=f=6500:t=q:w=1.2:g=-2,"          # soften harsh sibilance
+          "acompressor=threshold=-22dB:ratio=2:attack=15:release=200:makeup=2,"
           "loudnorm=I=-16:TP=-1.5:LRA=9")
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(raw),
            "-af", af, "-ar", "24000", "-ac", "1", str(out)]
@@ -152,26 +153,71 @@ def _polish(raw: Path, out: Path) -> None:
         raise RuntimeError("ffmpeg polish failed: " + r.stderr[-400:])
 
 
+def _shape(seg: array, sr: int, fade_in: float = 0.008, fade_out: float = 0.03,
+           tail: float = 0.08, thresh: int = 300) -> array:
+    """Trim dead air at both ends (with a safety margin), fade the edges so words
+    never end on a click or a chopped syllable, and add a short natural tail."""
+    import numpy as np
+
+    x = np.frombuffer(seg.tobytes(), dtype="<i2").astype(np.float32)
+    if x.size == 0:
+        return seg
+    loud = np.flatnonzero(np.abs(x) > thresh)
+    if loud.size:
+        margin = int(sr * 0.04)
+        x = x[max(0, loud[0] - margin): min(x.size, loud[-1] + int(sr * 0.12))]
+    n_in, n_out = min(int(sr * fade_in), x.size // 4), min(int(sr * fade_out), x.size // 4)
+    if n_in:
+        x[:n_in] *= np.linspace(0.0, 1.0, n_in, dtype=np.float32)
+    if n_out:
+        x[-n_out:] *= np.linspace(1.0, 0.0, n_out, dtype=np.float32) ** 2
+    x = np.concatenate([x, np.zeros(int(sr * tail), dtype=np.float32)])
+    out = array("h")
+    out.frombytes(np.clip(x, -32768, 32767).astype("<i2").tobytes())
+    return out
+
+
+def _gap(sr: int, seconds: float, room_tone_db) -> array:
+    """A pause filled with faint, soft room tone instead of digital silence."""
+    import numpy as np
+
+    n = int(sr * seconds)
+    if room_tone_db is None or n <= 0:
+        return array("h", bytes(2 * max(n, 0)))
+    rng = np.random.default_rng(n)
+    noise = rng.standard_normal(n + 64).astype(np.float32)
+    noise = np.convolve(noise, np.ones(64, dtype=np.float32) / 8.0, mode="valid")[:n]  # soften the hiss
+    noise *= (10 ** (float(room_tone_db) / 20.0) * 32767) / (np.std(noise) or 1.0)
+    out = array("h")
+    out.frombytes(np.clip(noise, -32768, 32767).astype("<i2").tobytes())
+    return out
+
+
 def synthesize(cfg, text: str, out_wav) -> Path:
     engine_name = str(cfg.get("voice.engine", "kokoro")).lower()
     ensure_voice(cfg)
     engine = _Kokoro(cfg) if engine_name == "kokoro" else _Piper(cfg)
     s_pause = float(cfg.get("voice.sentence_pause", 0.22))
     p_pause = float(cfg.get("voice.paragraph_pause", 0.45))
+    room = cfg.get("voice.room_tone_db", -62)
+    by_paragraph = str(cfg.get("voice.chunking", "paragraph")).lower() != "sentence"
     spoken = apply_pronunciations(clean_for_speech(text), cfg.get("voice.pronunciations") or {})
 
-    pcm, sr = array("h"), None
+    # paragraph mode: one generation per beat, so sentences flow with natural intonation;
+    # sentence mode: one generation per sentence (more control, choppier).
     beats = split_beats(spoken)
-    for pi, para in enumerate(beats):
-        for si, sentence in enumerate(para):
-            seg, seg_sr = engine.say(sentence)
+    units = [[" ".join(p)] for p in beats] if by_paragraph else beats
+    pcm, sr = array("h"), None
+    for pi, para in enumerate(units):
+        for si, chunk in enumerate(para):
+            seg, seg_sr = engine.say(chunk)
             if sr is None:
                 sr = seg_sr
-            pcm.extend(seg)
-            last = pi == len(beats) - 1 and si == len(para) - 1
+            pcm.extend(_shape(seg, sr))
+            last = pi == len(units) - 1 and si == len(para) - 1
             if not last:
                 gap = p_pause if si == len(para) - 1 else s_pause
-                pcm.extend(array("h", bytes(2 * int(sr * gap))))
+                pcm.extend(_gap(sr, max(gap - 0.08, 0.0), room))  # _shape already added an 80 ms tail
     if not pcm or sr is None:
         raise RuntimeError(f"{engine_name} produced no audio")
 
