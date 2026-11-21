@@ -15,15 +15,21 @@ Chunk = tuple[float, float, str]
 _BREAK_CHARS = (".", "!", "?", ",")
 
 
-def transcribe_words(cfg: Config, wav: Path | str, prompt: str = "") -> list[Word]:
+_MODEL_CACHE: dict = {}
+
+
+def _model(cfg: Config):
     from faster_whisper import WhisperModel  # lazy
 
-    model = WhisperModel(
-        cfg.get("captions.whisper_model", "base.en"),
-        device="cpu",
-        compute_type="int8",
-        download_root=str(cfg.path("models")),
-    )
+    name = cfg.get("captions.whisper_model", "base.en")
+    if name not in _MODEL_CACHE:
+        _MODEL_CACHE[name] = WhisperModel(name, device="cpu", compute_type="int8",
+                                          download_root=str(cfg.path("models")))
+    return _MODEL_CACHE[name]
+
+
+def transcribe_words(cfg: Config, wav: Path | str, prompt: str = "") -> list[Word]:
+    model = _model(cfg)
     segments, _info = model.transcribe(
         str(wav), word_timestamps=True, initial_prompt=(prompt or "")[:800] or None
     )
@@ -78,6 +84,76 @@ def align_to_script(words: list[Word], script: str, min_ratio: float = 0.5) -> l
             step = (end - start) / n
             out.extend((start + k * step, start + (k + 1) * step, script_words[j1 + k]) for k in range(n))
         # "delete": audio words not in the script (rare) are dropped
+    return out
+
+
+def _paragraphs(script: str) -> list[str]:
+    import re
+    return [p.strip() for p in re.split(r"\n\s*\n|\n", script or "") if p.strip()]
+
+
+def spread_words(text: str, start: float, end: float) -> list[Word]:
+    """Even timing for a paragraph's words across a known span, weighted by word length."""
+    toks = [t for t in (text or "").split() if _norm(t)]
+    if not toks:
+        return []
+    end = max(end, start + 0.1 * len(toks))
+    weights = [len(_norm(t)) + 2 for t in toks]
+    total, t, out = sum(weights), start, []
+    for tok, wgt in zip(toks, weights):
+        d = (end - start) * wgt / total
+        out.append((t, t + d * 0.9, tok))
+        t += d
+    return out
+
+
+def transcribe_by_spans(cfg: Config, wav: Path | str, spans: list[list[float]], script: str) -> list[Word] | None:
+    """Caption timings when the narration's beat spans are known exactly (our own TTS).
+
+    Each beat is transcribed on its own short clip, so a Whisper slip can't shift later
+    beats, and a beat Whisper fumbles gets evenly spread words inside its known span.
+    Returns None if the spans don't match the script's paragraphs.
+    """
+    import subprocess
+    import tempfile
+
+    paras = _paragraphs(script)
+    if not spans or len(spans) != len(paras):
+        log.info("Beat spans (%d) don't match script paragraphs (%d); using full transcription",
+                 len(spans or []), len(paras))
+        return None
+    out: list[Word] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        for i, ((s, e), text) in enumerate(zip(spans, paras)):
+            want = [t for t in text.split() if _norm(t)]
+            if not want:
+                continue
+            pad_s = max(0.0, s - 0.15)
+            clip = Path(tmp) / f"beat_{i}.wav"
+            words: list[Word] = []
+            try:
+                subprocess.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-ss", f"{pad_s:.3f}",
+                                "-t", f"{(e - pad_s) + 0.25:.3f}", "-i", str(wav), "-ar", "16000", "-ac", "1",
+                                str(clip)], check=True, capture_output=True, timeout=120)
+                raw = transcribe_words(cfg, clip, text)
+                words = [(a + pad_s, b + pad_s, t) for a, b, t in raw]
+            except Exception as ex:  # noqa: BLE001
+                log.warning("Beat %d transcription failed (%s); spreading words evenly", i, ex)
+            aligned = align_to_script(words, text) if words else []
+            ok = len(aligned) == len(want) and all(
+                s - 0.3 <= a <= e + 0.3 for a, _b, _t in aligned)
+            if not ok:
+                log.info("Beat %d: using even word timing inside its known span", i)
+                aligned = spread_words(text, s, e)
+            # keep inside the beat and monotonic
+            fixed: list[Word] = []
+            prev = out[-1][1] if out else 0.0
+            for a, b, t in aligned:
+                a = min(max(a, s - 0.05, prev), e)
+                b = max(min(b, e + 0.1), a + 0.05)
+                fixed.append((a, b, t))
+                prev = a
+            out.extend(fixed)
     return out
 
 

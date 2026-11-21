@@ -238,8 +238,12 @@ def render_draft(cfg: Config, draft_id: int) -> Path:
         if not row["audio_path"] or not Path(row["audio_path"]).exists():
             raise RuntimeError("Draft has no audio file")
         wav = Path(row["audio_path"])
-        words = captions.transcribe_words(cfg, wav, data.get("script", ""))
-        words = captions.align_to_script(words, data.get("script", ""))
+        from .tts import load_spans
+        spans = load_spans(wav)
+        words = captions.transcribe_by_spans(cfg, wav, spans, data.get("script", "")) if spans else None
+        if words is None:  # recorded voice, or older drafts without span data
+            words = captions.transcribe_words(cfg, wav, data.get("script", ""))
+            words = captions.align_to_script(words, data.get("script", ""))
         if not words:
             raise RuntimeError("Transcription produced no words")
         chunks = captions.chunk_words(words, int(cfg.get("captions.words_per_chunk", 3)))
@@ -305,6 +309,8 @@ def render_draft(cfg: Config, draft_id: int) -> Path:
 
 def attach_voice(cfg: Config, draft_id: int, ogg_path: Path | str) -> Path:
     wav = cfg.path("work") / f"draft_{draft_id}.wav"
+    from .tts import spans_path
+    spans_path(wav).unlink(missing_ok=True)  # a recorded voice has no known beat timings
     r = subprocess.run(
         ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(ogg_path),
          "-ar", "22050", "-ac", "1", str(wav)],

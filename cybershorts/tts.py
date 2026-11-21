@@ -12,6 +12,7 @@ spelling. The result is loudness-normalized with ffmpeg (voice.polish).
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 import subprocess
@@ -208,12 +209,20 @@ def synthesize(cfg, text: str, out_wav) -> Path:
     beats = split_beats(spoken)
     units = [[" ".join(p)] for p in beats] if by_paragraph else beats
     pcm, sr = array("h"), None
+    spans: list[list[float]] = []  # per paragraph: [start_s, end_s] of speech in the final audio
     for pi, para in enumerate(units):
         for si, chunk in enumerate(para):
             seg, seg_sr = engine.say(chunk)
             if sr is None:
                 sr = seg_sr
-            pcm.extend(_shape(seg, sr))
+            start = len(pcm)
+            shaped = _shape(seg, sr)
+            pcm.extend(shaped)
+            speech_end = len(pcm) - int(sr * 0.08)  # minus the tail _shape added
+            if si == 0:
+                spans.append([start / sr, speech_end / sr])
+            else:
+                spans[-1][1] = speech_end / sr
             last = pi == len(units) - 1 and si == len(para) - 1
             if not last:
                 gap = p_pause if si == len(para) - 1 else s_pause
@@ -240,4 +249,22 @@ def synthesize(cfg, text: str, out_wav) -> Path:
         raw.replace(out_wav)
     if out_wav.stat().st_size < 1000:
         raise RuntimeError(f"{engine_name} produced no audio")
+    # Exact beat timings, used for caption alignment (captions.transcribe_by_spans)
+    spans_path(out_wav).write_text(json.dumps([[round(a, 3), round(b, 3)] for a, b in spans]))
     return out_wav
+
+
+def spans_path(wav) -> Path:
+    wav = Path(wav)
+    return wav.with_name(wav.stem + ".spans.json")
+
+
+def load_spans(wav) -> list[list[float]] | None:
+    p = spans_path(wav)
+    try:
+        spans = json.loads(p.read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(spans, list) or not all(isinstance(x, list) and len(x) == 2 for x in spans):
+        return None
+    return [[float(a), float(b)] for a, b in spans]
