@@ -139,6 +139,15 @@ youtube:
 tiktok:
   enabled: true
 
+# Background music bed (quiet, ducks under the voice). Put licensed tracks in data/music/
+# (e.g. YouTube Studio > Audio library, "Attribution not required"). No tracks = no music.
+music:
+  enabled: true
+  folder: music          # relative to data/, or an absolute path
+  volume_db: -20         # music level before ducking; -24 quieter, -16 louder
+  duck: true             # dip the music while the narrator speaks
+  on_tiktok: false       # false: TikTok gets the clean version so you can add a TikTok sound in the app
+
 # Delete rendered videos this many days after they are published or rejected.
 cleanup:
   keep_days: 7

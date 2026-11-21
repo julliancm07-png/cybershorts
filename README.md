@@ -66,3 +66,12 @@ python -m unittest discover -s tests -v   # unit tests (stdlib only)
 ```
 
 Secrets live in `.env`. Settings live in `config.yaml` (copy from `config.example.yaml`).
+
+## Background music
+
+Drop licensed instrumental tracks (mp3/m4a/wav) into `/opt/cybershorts/data/music/`
+(e.g. YouTube Studio → Audio library → filter "Attribution not required").
+Each draft picks one at random (never the same twice in a row), mixes it quietly under
+the narration and ducks it while the voice talks. The music version goes to YouTube and the
+Telegram preview; TikTok gets the clean version so you can add a TikTok sound in the app
+(`music.on_tiktok: true` to send the music version there too). No tracks = no music.

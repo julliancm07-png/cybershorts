@@ -266,19 +266,28 @@ def render_draft(cfg: Config, draft_id: int) -> Path:
             render.render(cfg, wav, ass, None, out, beats=beats, watermark=False)
         _cleanup_broll(cfg, draft_id, clips)
 
+        from . import music
+        with_music, track = music.add_music(cfg, draft_id, out)
+        preview = with_music or out  # Telegram shows what YouTube will get
+
         from .telegram import keyboard
 
         caption = _telegram_caption(data, row["story_url"], draft_id)
+        if with_music:
+            note = "\n" + html.escape(f"🎵 {track}" + ("" if cfg.get("music.on_tiktok", False)
+                                                       else " (YouTube only; add a TikTok sound in the app)"), quote=False)
+            if len(caption) + len(note) <= 1024:
+                caption += note
         kb = keyboard(draft_id, yt_enabled=cfg.get("youtube.enabled", True),
                       tt_enabled=cfg.get("tiktok.enabled", True))
         tg = _telegram(cfg)
-        if out.stat().st_size > MAX_TG_VIDEO_BYTES:
+        if preview.stat().st_size > MAX_TG_VIDEO_BYTES:
             resp = tg.send_message(
                 caption[:3800] + "\n\n" + html.escape(
-                    f"Video is too large for Telegram ({out.stat().st_size // (1024 * 1024)} MB). "
-                    f"Server path: {out}", quote=False), kb)
+                    f"Video is too large for Telegram ({preview.stat().st_size // (1024 * 1024)} MB). "
+                    f"Server path: {preview}", quote=False), kb)
         else:
-            resp = tg.send_video(str(out), caption, kb)
+            resp = tg.send_video(str(preview), caption, kb)
         msg_id = None
         if isinstance(resp, dict):
             msg_id = (resp.get("result") or resp).get("message_id")
@@ -327,7 +336,11 @@ def publish(cfg: Config, draft_id: int, targets: set[str]) -> str:
         if not row["video_path"] or not Path(row["video_path"]).exists():
             raise RuntimeError(f"Draft {draft_id} has no rendered video")
         data = _draft_data(row)
-        video = Path(row["video_path"])
+        video = Path(row["video_path"])  # clean master (no music)
+        from . import music
+        mv = music.music_version(cfg, draft_id)
+        video_yt = mv if mv.exists() else video
+        video_tt = mv if (mv.exists() and cfg.get("music.on_tiktok", False)) else video
         db.update_draft(conn, draft_id, status="publishing")
     finally:
         conn.close()
@@ -348,7 +361,7 @@ def publish(cfg: Config, draft_id: int, targets: set[str]) -> str:
         try:
             from . import youtube
 
-            vid = youtube.upload(cfg, video, data["youtube_title"], data["description"],
+            vid = youtube.upload(cfg, video_yt, data["youtube_title"], data["description"],
                                  data.get("hashtags", []))
             fields["youtube_id"] = vid
             _save_fields(cfg, draft_id, youtube_id=vid)
@@ -362,7 +375,7 @@ def publish(cfg: Config, draft_id: int, targets: set[str]) -> str:
         try:
             from . import tiktok
 
-            pid = tiktok.upload_draft(cfg, video)
+            pid = tiktok.upload_draft(cfg, video_tt)
             fields["tiktok_publish_id"] = pid
             _save_fields(cfg, draft_id, tiktok_publish_id=pid)
             ok.append("tt")

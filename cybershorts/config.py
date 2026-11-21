@@ -76,6 +76,7 @@ DEFAULTS: dict[str, Any] = {
         "made_for_kids": False,
     },
     "tiktok": {"enabled": True},
+    "music": {"enabled": True, "folder": "music", "volume_db": -20, "duck": True, "on_tiktok": False},
     "cleanup": {"keep_days": 7},
 }
 
@@ -91,7 +92,7 @@ SECRET_KEYS = [
     "HEALTHCHECK_URL",
 ]
 
-DATA_SUBDIRS = ("videos", "voices", "models", "work", "broll", "brand")
+DATA_SUBDIRS = ("videos", "voices", "models", "work", "broll", "brand", "music")
 
 
 def deep_merge(base: dict, override: dict) -> dict:
