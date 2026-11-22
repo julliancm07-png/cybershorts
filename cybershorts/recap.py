@@ -50,6 +50,23 @@ def week_key(cfg: Config, now: datetime | None = None) -> str:
     return f"{iso[0]}-W{iso[1]:02d}"
 
 
+def episode_label(cfg: Config, n: int) -> str:
+    """User-facing label, e.g. 'Week 1' (recap.label, {n} = this channel's recap number)."""
+    tpl = str(cfg.get("recap.label", "Week {n}") or "Week {n}")
+    try:
+        return tpl.format(n=n)
+    except (KeyError, IndexError, ValueError):
+        return f"Week {n}"
+
+
+def date_range(cfg: Config, now: datetime | None = None) -> str:
+    """The lookback window in plain words, e.g. 'Nov 16 to Nov 22, 2026'."""
+    end = _aware(now).astimezone(_tz(cfg))
+    start = end - timedelta(days=max(int(cfg.get("recap.lookback_days", 7)) - 1, 0))
+    fmt = lambda d: f"{d.strftime('%b')} {d.day}"  # noqa: E731
+    return f"{fmt(start)} to {fmt(end)}, {end.year}"
+
+
 def _row_data(row) -> dict:
     try:
         d = json.loads(row["data_json"] or "{}")
@@ -133,7 +150,8 @@ def source_text(cfg: Config, s: dict) -> str:
 
 # --- script -------------------------------------------------------------------
 
-def write_recap_script(cfg: Config, stories: list[dict], week: str) -> dict:
+def write_recap_script(cfg: Config, stories: list[dict], week: str, *, label: str = "",
+                       dates: str = "") -> dict:
     lo, hi = cfg.get("recap.target_words", [600, 800])
     n = len(stories)
     per = max(1, round(((lo + hi) / 2 - 90) / max(n, 1)))
@@ -142,7 +160,7 @@ def write_recap_script(cfg: Config, stories: list[dict], week: str) -> dict:
     sub = str(cfg.get("recap.subscribe_line", "") or "")
     blocks = [f"[Story {i}]\n{source_text(cfg, s)}" for i, s in enumerate(stories, 1)]
     system = (
-        "You write the narration for a 4-5 minute weekly news recap video about IT and security, "
+        "You write the narration for a 6-8 minute in-depth weekly news recap video about IT and security, "
         "read aloud by a text-to-speech voice. Write for the ear, the way a sharp friend who works in IT "
         "would walk you through the week: conversational, confident, never stiff.\n"
         "Facts: use ONLY what is in the provided story material. Never invent details, numbers, names, "
@@ -150,15 +168,19 @@ def write_recap_script(cfg: Config, stories: list[dict], week: str) -> dict:
         "never copy sentences from an article."
     )
     user = (
-        f"Week: {week}. The stories below are ranked by viewer interest; keep this order.\n\n"
+        (f"This is {label} of the channel's weekly recap" if label else "This is the weekly recap")
+        + (f", covering {dates}" if dates else "")
+        + ". Never mention ISO or calendar week numbers. "
+        "The stories below are ranked by viewer interest; keep this order.\n\n"
         + "\n\n".join(blocks)
         + "\n\nHow the narration must sound:\n"
         "- Short sentences, mostly under 15 words, contractions, no headline-speak, no filler.\n"
         "- Spoken by a robot voice: no parentheses, slashes, symbols or URLs. Write numbers the way people "
         "say them. Spell out uncommon acronyms. Don't read CVE ids or version strings aloud.\n"
         f"- Total narration {lo}-{hi} words. One intro paragraph (what's coming this week), then exactly "
-        f"{n} story segments of 2 to 3 short paragraphs each (about {per} words, what happened, who is "
-        "affected, what to do), then a one-paragraph outro.\n"
+        f"{n} story segments of 3 to 5 short paragraphs each (about {per} words). Go deeper than the "
+        "Short did: what happened, how it works in plain terms, who is affected, why it matters, and what "
+        "to do, all from the provided material. Then a one-paragraph outro.\n"
         "- Separate paragraphs with a blank line. The voice pauses between paragraphs.\n"
         + (tagmod_instructions(cfg, budget) if use_tags else "")
         + (f"- The outro ends by inviting viewers to subscribe, e.g. \"{sub}\"\n" if sub else "")
@@ -524,7 +546,7 @@ def _check_week(cfg: Config, conn, week: str, force: bool, on_demand: bool) -> b
         return False
     log.info("Recap for %s already exists (#%s, %s)", week, existing["id"], status)
     if on_demand:
-        pipeline._notify(cfg, f"Weekly recap {week} already made (#{existing['id']}). "
+        pipeline._notify(cfg, f"This week's recap is already made (#{existing['id']}). "
                               "Send /recap force to make another.")
     return True
 
@@ -541,8 +563,10 @@ def run(cfg: Config, *, force: bool = False, on_demand: bool = False) -> int | N
         if _check_week(cfg, conn, week, force, on_demand):
             return None
         stories = select_stories(cfg, conn)
+        episode = db.count_published_recaps(conn) + 1
     finally:
         conn.close()
+    label = episode_label(cfg, episode)
     need = int(cfg.get("recap.min_stories", 3))
     if len(stories) < need:
         msg = f"Weekly recap skipped: {len(stories)} stories this week, need {need}"
@@ -551,7 +575,7 @@ def run(cfg: Config, *, force: bool = False, on_demand: bool = False) -> int | N
         return None
 
     try:
-        data = write_recap_script(cfg, stories, week)
+        data = write_recap_script(cfg, stories, week, label=label, dates=date_range(cfg))
         if cfg.get("llm.fact_check", True):
             joined = "\n\n".join(f"[Story {i}]\n{source_text(cfg, s)}" for i, s in enumerate(stories, 1))
             data["fact_check"] = writer.fact_check(
@@ -563,6 +587,8 @@ def run(cfg: Config, *, force: bool = False, on_demand: bool = False) -> int | N
         pipeline._notify(cfg, f"Weekly recap failed: {pipeline._short_error(cfg, e)}")
         raise
     data["week"] = week
+    data["episode"] = episode
+    data["week_label"] = label
     data["stories"] = [{"draft_id": s["draft_id"], "youtube_id": s["youtube_id"], "url": s["url"],
                         "title": s["title"]} for s in stories]
     data["words"] = len(data["script"].split())
@@ -644,7 +670,7 @@ def _produce(cfg: Config, draft_id: int, week: str, stories: list[dict], data: d
             overlays[i] = extra
     work = cfg.path("work")
     ass = recap_captions.write_recap_ass(
-        cfg, words, chunks, parts, total, title=data["on_screen_title"], week_label=week,
+        cfg, words, chunks, parts, total, title=data["on_screen_title"], week_label=data.get("week_label") or week,
         handle=cfg.get("channel.handle", ""), overlays=overlays, out_path=work / f"draft_{draft_id}.ass")
     out = cfg.path("videos") / f"draft_{draft_id}.mp4"
     durations = [p["end"] - p["start"] for p in parts]

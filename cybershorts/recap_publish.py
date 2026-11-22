@@ -37,7 +37,7 @@ def _chapter_lines(data: dict) -> list[str]:
 def recap_caption(data: dict, draft_id: int) -> str:
     """HTML caption, every dynamic value escaped, <= 1024 chars. Trims chapters first, then fact-check issues."""
     title = " ".join(str(data.get("youtube_title") or data.get("on_screen_title") or "").split())
-    week = data.get("week") or ""
+    week = data.get("week_label") or data.get("week") or ""
     dur = data.get("duration")
     words = data.get("words") or len(str(data.get("script") or "").split())
     meta = []

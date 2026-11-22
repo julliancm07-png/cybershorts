@@ -146,7 +146,11 @@ class SoundClient:
                 return bytes(data)
             detail = self._detail(r)
             if status in (401, 402, 403) or "quota" in detail.lower():
-                raise KitFatal(f"ElevenLabs HTTP {status}: {detail or 'not allowed'}")
+                hint = ""
+                if "permission" in detail.lower():
+                    hint = (" - your API key lacks the Sound Effects / Music permission: elevenlabs.io > "
+                            "Developers > API Keys > edit the key and enable them (or make a new key)")
+                raise KitFatal(f"ElevenLabs HTTP {status}: {detail or 'not allowed'}{hint}")
             last = f"HTTP {status}: {detail}"
             if status in (429, 500, 502, 503, 504):
                 time.sleep(3 + 5 * attempt)

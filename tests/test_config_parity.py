@@ -53,6 +53,7 @@ V3_KEYS = [
 
 # Every recap.* key (weekly long-form recap), as a dotted path. Each must exist in DEFAULTS and in the example YAML.
 RECAP_KEYS = [
+    "recap.label",
     "recap.enabled",
     "recap.stories",
     "recap.min_stories",

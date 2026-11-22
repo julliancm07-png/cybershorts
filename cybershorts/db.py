@@ -306,6 +306,13 @@ def find_recap(conn: sqlite3.Connection, week: str) -> sqlite3.Row | None:
     ).fetchone()
 
 
+def count_published_recaps(conn: sqlite3.Connection) -> int:
+    """Recaps that reached YouTube or TikTok (status published or partial)."""
+    row = conn.execute(
+        "SELECT COUNT(*) FROM drafts WHERE kind='recap' AND status IN ('published','partial')").fetchone()
+    return int(row[0] or 0)
+
+
 def views_for(conn: sqlite3.Connection, ids: Iterable[str]) -> dict[str, int]:
     """Stored view counts keyed by YouTube ID. IDs with no video_stats row are omitted."""
     ids = list({str(i) for i in ids if i})

@@ -325,6 +325,8 @@ analytics:
 recap:
   # Master switch for the Sunday recap and /recap in Telegram.
   enabled: true
+  # Label shown in the video and Telegram; {n} = this channel's recap number (published recaps + 1).
+  label: "Week {n}"
   # Most stories from the past week's published Shorts used in one recap.
   stories: 5
   # Below this many published Shorts in the lookback window no recap is made.
@@ -336,11 +338,11 @@ recap:
   # OpenRouter model for the recap script; empty = llm.model.
   model: ""
   # Spoken script length range in words for the whole recap.
-  target_words: [600, 800]
+  target_words: [900, 1200]
   # Re-fetch each story's article so the script has real specifics.
   fetch_article: true
   # How much of each article to send to the model.
-  max_article_chars: 2500
+  max_article_chars: 4000
   # Most audio tags kept in the recap voice script.
   max_audio_tags: 5
   # Prefix added to the recap YouTube title.

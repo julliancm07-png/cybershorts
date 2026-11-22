@@ -94,7 +94,7 @@ Note: with an old `config.yaml` (one that lacks the v3 keys), every v3 feature d
 
 ## Weekly recap
 
-Every Sunday the bot makes a 4-5 minute landscape YouTube video (a 600-800 word script) of the week's top stories, drawn from the Shorts published that week. It has chapters, a thumbnail and an auto first comment. You get a preview in Telegram with two buttons, "Publish to YouTube" and "Reject". It is posted to YouTube only, not TikTok.
+Every Sunday the bot makes a 6-8 minute in-depth landscape YouTube video (a 900-1,200 word script) of the week's top stories, drawn from the Shorts published that week. It has chapters, a thumbnail and an auto first comment. You get a preview in Telegram with two buttons, "Publish to YouTube" and "Reject". It is posted to YouTube only, not TikTok, so the Shorts can send viewers to the longer video. The video and Telegram label it with the channel's own count ("Week 1", "Week 2", ...; `recap.label`).
 
 Setup, as root:
 
@@ -110,7 +110,7 @@ Send `/recap` in Telegram to make one now (`/recap force` to remake this week's)
 
 Notes:
 - It runs Sundays at 09:30 ET and needs at least `recap.min_stories` (3) published Shorts that week.
-- Each recap uses roughly 4,000-5,000 ElevenLabs credits.
+- Each recap uses roughly 6,000-8,000 ElevenLabs credits (about one character per credit).
 - Custom thumbnails need a phone-verified channel (youtube.com/verify). Without one, YouTube picks a frame and Telegram shows a warning.
 - Restarting the bot while a `/recap` is rendering stops that run. The stopped run is recovered automatically: it is marked failed, and the next `/recap` or the weekly timer starts over instead of the week staying blocked.
 - If a publish fails after the video is rendered, `/recap` will not remake it (that would re-spend the voice credits). Tap Publish to YouTube on it again, or send `/recap force` to remake.
