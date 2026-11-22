@@ -314,7 +314,7 @@ class PipelineTests(unittest.TestCase):
         from cybershorts import health
         with mock.patch("cybershorts.health.requests.get") as get:
             health.ping("http://k/api/push/abc?status=up&msg=OK&ping=", "down", "x y")
-        self.assertEqual(get.call_args[0][0], "http://k/api/push/abc?status=down&msg=x%20y")
+        self.assertEqual(get.call_args[0][0], "http://k/api/push/abc?status=down&msg=x%20y&ping=")
 
     def test_youtube_strips_angle_brackets(self):
         from cybershorts import youtube

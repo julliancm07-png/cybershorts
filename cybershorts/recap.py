@@ -110,10 +110,71 @@ def _story_source(row, url) -> str:
     return host[4:] if host.startswith("www.") else host
 
 
-def select_stories(cfg: Config, conn, now: datetime | None = None) -> list[dict]:
-    """Top `recap.stories` Shorts from the last `recap.lookback_days`, ranked by views, breaking, recency."""
+KEPT_RECAP_STATUSES = ("published", "partial", "rendered", "publishing")
+
+
+def _kept_recaps(conn, exclude_week: str | None = None) -> list:
+    """Recaps that count as made (not rejected/failed), optionally leaving out one ISO week (a remake)."""
+    rows = conn.execute(
+        "SELECT * FROM drafts WHERE kind='recap' AND status IN (%s)" % ",".join("?" * len(KEPT_RECAP_STATUSES)),
+        KEPT_RECAP_STATUSES).fetchall()
+    if exclude_week:  # a remake replaces this week's unposted recap; a posted one still counts
+        rows = [r for r in rows if r["story_url"] != f"recap:{exclude_week}"
+                or r["status"] in ("published", "partial")]
+    return rows
+
+
+def covered_draft_ids(conn, exclude_week: str | None = None) -> set[int]:
+    """Shorts already used by a kept recap: never used again."""
+    out: set[int] = set()
+    for r in _kept_recaps(conn, exclude_week):
+        for s in _row_data(r).get("stories") or []:
+            try:
+                out.add(int(s.get("draft_id")))
+            except (TypeError, ValueError, AttributeError):
+                continue
+    return out
+
+
+def _parse_ts(value) -> datetime | None:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def account_week(cfg: Config, conn, now: datetime | None = None) -> int:
+    """Week number of the channel: calendar weeks (Mon-Sun, recap.timezone) since the first Short that was
+    actually posted (has a YouTube id). Drafts that were never posted don't count. 1 when nothing is posted."""
+    row = conn.execute(
+        "SELECT MIN(created_at) FROM drafts WHERE COALESCE(kind,'regular') != 'recap' AND youtube_id IS NOT NULL"
+    ).fetchone()
+    first = _parse_ts(row[0] if row else None)
+    if first is None:
+        return 1
+    tz = _tz(cfg)
+    a = first.astimezone(tz).date()
+    b = _aware(now).astimezone(tz).date()
+    a -= timedelta(days=a.weekday())
+    b -= timedelta(days=b.weekday())
+    return max(1, (b - a).days // 7 + 1)
+
+
+def select_stories(cfg: Config, conn, now: datetime | None = None, *, week: str | None = None) -> list[dict]:
+    """Top `recap.stories` Shorts posted since the last kept recap (at most `recap.lookback_days` back),
+    ranked by views, breaking, recency. Shorts used by any kept recap are never picked again.
+    `week` (the ISO week being made) leaves that week's own earlier recap out, so a remake can reuse its stories."""
     since = _aware(now).astimezone(timezone.utc) - timedelta(days=int(cfg.get("recap.lookback_days", 7)))
-    rows = db.recap_candidates(conn, since.strftime("%Y-%m-%dT%H:%M:%S"))
+    for r in _kept_recaps(conn, week):
+        last = _parse_ts(r["created_at"])
+        if last is not None and last > since:
+            since = last
+    covered = covered_draft_ids(conn, week)
+    rows = [r for r in db.recap_candidates(conn, since.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"))
+            if int(r["id"]) not in covered]
     if not rows:
         return []
     views = _views(cfg, conn, [str(r["youtube_id"]) for r in rows])
@@ -647,7 +708,8 @@ def build_visuals(cfg: Config, stories: list[dict], data: dict) -> list[dict]:
     return vis
 
 
-def run(cfg: Config, *, force: bool = False, on_demand: bool = False) -> int | None:
+def run(cfg: Config, *, force: bool = False, on_demand: bool = False,
+        week_number: int | None = None) -> int | None:
     """Make this week's recap and send it for review. Returns the draft id, or None if skipped."""
     if not cfg.get("recap.enabled", True):
         log.info("Weekly recap is disabled (recap.enabled: false)")
@@ -658,8 +720,8 @@ def run(cfg: Config, *, force: bool = False, on_demand: bool = False) -> int | N
         db.init(conn)
         if _check_week(cfg, conn, week, force, on_demand):
             return None
-        stories = select_stories(cfg, conn)
-        episode = db.count_published_recaps(conn) + 1
+        stories = select_stories(cfg, conn, week=week)
+        episode = int(week_number) if week_number else account_week(cfg, conn)
     finally:
         conn.close()
     label = episode_label(cfg, episode)

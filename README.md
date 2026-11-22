@@ -142,6 +142,8 @@ Notes:
 - Generated music may be used commercially on paid ElevenLabs plans without attribution, but not resold as a library. Follow YouTube and TikTok rules for labelling AI-generated content.
 - To turn it off, set `sound.enabled: false`. Videos then render exactly as before. `sound.sfx_on_tiktok: false` keeps TikTok without effects. When that clean TikTok version exists it is always what TikTok gets, even if `music.on_tiktok` is true: music is not added to it (an info line is logged). `music.prefer_kit: false` keeps your own music folder.
 
+Which Shorts a recap uses: the best ones (by views) posted since the last recap you kept, at most 7 days back. A Short that was in a recap you published or are reviewing is never used again; rejecting a recap frees its Shorts. The "Week N" label counts calendar weeks since your first posted Short (drafts you never posted don't count). If it's wrong, tap Reject and send `/recap force week 2` (any number) to remake it with that label.
+
 ## Alerts and backups
 
 **Failure alerts.** Every job (draft, breaking, analytics, backup) and the bot sends a Telegram message when it fails. The message includes the last log lines, with secrets removed, and a tip for common causes like no credits, an expired login, a full disk, or no internet. A job that keeps failing alerts at most once every `alerts.repeat_minutes` (180), and sends one "working again" note when it recovers.
@@ -159,6 +161,8 @@ systemctl restart cybershorts-bot
 cs scripts/alert.py --test         # you should get a test alert in Telegram
 cs scripts/backup.py               # first backup now
 ```
+
+**Uptime Kuma (optional).** In Kuma add a Push monitor, set its Heartbeat Interval to 360 seconds, and put its push URL in `.env` as `HEALTHCHECK_URL` (use the plain `http://<kuma-ip>:3001/api/push/<token>` form; a self-signed https URL needs `health.verify_tls: false`). The bot pings it every 5 minutes, so the monitor shows whether the bot is alive; job failures still come as Telegram alerts. `cs scripts/doctor.py` tests the URL and prints the exact problem if it fails.
 
 Restore on a fresh container:
 

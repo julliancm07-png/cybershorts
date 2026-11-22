@@ -22,6 +22,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--force", action="store_true", help="make a recap even if one exists for this week")
     ap.add_argument("--on-demand", action="store_true", help="started from Telegram: don't wait for the lock")
+    ap.add_argument("--week", type=int, default=None, help="week number to show (overrides the automatic count)")
     args = ap.parse_args(argv)
 
     from cybershorts import pipeline, recap
@@ -36,7 +37,7 @@ def main(argv=None) -> int:
         else:
             lock = pipeline.draft_lock(cfg, blocking=True, timeout=float(cfg.get("recap.lock_timeout", 1800)))
         with lock:
-            recap.run(cfg, force=args.force, on_demand=args.on_demand)
+            recap.run(cfg, force=args.force, on_demand=args.on_demand, week_number=args.week)
     except pipeline.Busy:
         if args.on_demand:
             pipeline._notify(cfg, "Another draft job is running; try /recap later.")

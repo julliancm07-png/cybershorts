@@ -119,6 +119,7 @@ DEFAULTS: dict[str, Any] = {
         ],
     },
     "cleanup": {"keep_days": 7},
+    "health": {"interval_seconds": 300, "verify_tls": True},
     "alerts": {"enabled": True, "repeat_minutes": 180, "log_lines": 25},
     "backup": {"keep": 8, "telegram": True, "max_telegram_mb": 45},
     "series": {

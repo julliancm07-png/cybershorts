@@ -214,7 +214,7 @@ class RunTests(Base):
         mock.patch.stopall()
         super().tearDown()
 
-    def fake_select(self, cfg, conn, now=None):
+    def fake_select(self, cfg, conn, now=None, **kw):
         return [{"draft_id": i, "youtube_id": f"yt{i}", "url": f"https://ex.com/{i}", "title": f"Story {i}",
                  "summary": "S", "script": "x", "description": "d", "breaking": False, "series": "",
                  "data": {}, "views": 0} for i in range(1, self.n_stories + 1)]

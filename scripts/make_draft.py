@@ -12,18 +12,16 @@ log = logging.getLogger("make_draft")
 
 
 def main() -> int:
-    from cybershorts import health, pipeline
+    from cybershorts import pipeline
     from cybershorts.config import load
 
     cfg = load()
     try:
         with pipeline.draft_lock(cfg, blocking=True):  # one draft job at a time (shared with breaking/bot)
             pipeline.make_draft(cfg)
-    except Exception as e:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         log.exception("make_draft failed")
-        health.ping(cfg.healthcheck_url, "down", str(e)[:200])
         return 1
-    health.ping(cfg.healthcheck_url, "up", "ok")
     return 0
 
 

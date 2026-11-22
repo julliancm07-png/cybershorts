@@ -39,7 +39,7 @@ class _E2EBase(unittest.TestCase):
         self.work = self.cfg.path("work")
         self.sent = {}
 
-    def _stories(self, cfg, conn, now=None):
+    def _stories(self, cfg, conn, now=None, **kw):
         return [{"draft_id": i, "youtube_id": f"yt{i}", "url": f"https://ex.com/{i}", "title": f"Story {i}",
                  "summary": "S", "script": "x", "description": "d", "breaking": False, "series": "",
                  "data": {}, "views": 0} for i in range(1, 4)]

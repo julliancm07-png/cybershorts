@@ -45,6 +45,11 @@ def main() -> int:
                  "tiktok_client_key", "tiktok_client_secret", "tiktok_redirect_uri"):
         report(bool(getattr(cfg, attr, "")), "env " + attr.upper())
     print("  (HEALTHCHECK_URL is optional: %s)" % ("set" if cfg.healthcheck_url else "not set"))
+    if cfg.healthcheck_url and not args.offline:
+        from cybershorts import health
+        ok, why = health.check(cfg.healthcheck_url, "up", "doctor test",
+                               verify=bool(cfg.get("health.verify_tls", True)))
+        report(ok, "Uptime Kuma push", why)
     print("  (BACKUP_PASSPHRASE is optional: %s)" % (
         "set, backups are encrypted and sent to Telegram" if cfg.backup_passphrase
         else "not set, backups stay in data/backups only"))

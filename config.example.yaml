@@ -232,6 +232,13 @@ sound:
 cleanup:
   keep_days: 7
 
+# Uptime Kuma push monitor (HEALTHCHECK_URL in .env). The bot pings while it runs.
+# In Kuma set the monitor's Heartbeat Interval a bit above interval_seconds (e.g. 360).
+health:
+  interval_seconds: 300
+  # false only for a self-signed https Kuma URL (better: use http://<kuma-ip>:3001/api/push/...)
+  verify_tls: true
+
 # Telegram alerts when a scheduled job or the bot fails (and a note when it works again).
 alerts:
   enabled: true

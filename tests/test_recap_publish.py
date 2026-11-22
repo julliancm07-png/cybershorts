@@ -300,11 +300,11 @@ class ScriptTests(Base):
         self.assertEqual(rc, 0)
         self.assertEqual(dl.call_args.kwargs["blocking"], True)
         self.assertEqual(dl.call_args.kwargs["timeout"], float(self.cfg.get("recap.lock_timeout")))
-        self.assertEqual(run.call_args.kwargs, {"force": False, "on_demand": False})
+        self.assertEqual(run.call_args.kwargs, {"force": False, "on_demand": False, "week_number": None})
 
     def test_force_flag(self):
         _, _, run, _ = self._run(["--on-demand", "--force"])
-        self.assertEqual(run.call_args.kwargs, {"force": True, "on_demand": True})
+        self.assertEqual(run.call_args.kwargs, {"force": True, "on_demand": True, "week_number": None})
 
     def _busy_lock(self):
         lock = mock.MagicMock()

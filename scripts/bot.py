@@ -228,13 +228,24 @@ def main() -> int:
             if not cfg.get("recap.enabled", True):
                 reply("The weekly recap is turned off (recap.enabled: false).")
                 return
-            force = "force" in [w.lower() for w in text.split()[1:]]
-            reply("Making this week's recap (~20 min)...")
+            words = [w.lower() for w in text.split()[1:]]
+            force = "force" in words
+            week_n = None
+            if "week" in words:
+                i = words.index("week")
+                if i + 1 < len(words) and words[i + 1].isdigit() and 0 < int(words[i + 1]) < 1000:
+                    week_n = int(words[i + 1])
+                else:
+                    reply("Usage: /recap force week 2")
+                    return
+            reply("Making this week's recap%s (~20 min)..." % (" as Week %d" % week_n if week_n else ""))
             argv = [sys.executable, str(Path(__file__).resolve().parent / "recap.py"), "--on-demand"]
             if shutil.which("nice"):  # the render is heavy; keep the bot and the rest of the box responsive
                 argv = ["nice", "-n", "10"] + argv
             if force:
                 argv.append("--force")
+            if week_n:
+                argv += ["--week", str(week_n)]
             try:
                 subprocess.Popen(argv, cwd=str(cfg.app_dir), start_new_session=True)
             except OSError as e:
@@ -243,7 +254,7 @@ def main() -> int:
             handle_status()
             offer_stuck()
         elif cmd == "/start":
-            reply("Cyber Shorts bot ready. Commands: /draft, /recap [force], /status.")
+            reply("Cyber Shorts bot ready. Commands: /draft, /recap [force] [week N], /status.")
         elif msg.get("voice") or msg.get("audio"):
             handle_voice(msg)
 
@@ -268,6 +279,8 @@ def main() -> int:
             handle_message(msg)
 
     log.info("Bot started")
+    from cybershorts import health
+    health.start_heartbeat(cfg)
     offer_stuck()
     while True:
         try:
