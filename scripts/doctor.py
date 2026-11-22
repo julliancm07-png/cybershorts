@@ -76,6 +76,20 @@ def main() -> int:
 
     yt_tok = cfg.path("youtube_token.json")
     report(yt_tok.exists(), "youtube token file", str(yt_tok))
+    if yt_tok.exists():
+        try:
+            from cybershorts import youtube as _yt
+
+            if _yt.granted_scopes(cfg):
+                for scope, what in ((_yt.SCOPE_FORCE_SSL, "first comments and analytics"),
+                                    (_yt.SCOPE_ANALYTICS, "analytics retention data")):
+                    if not _yt.has_scope(cfg, scope):
+                        print("! youtube token lacks %s: %s disabled; re-run scripts/auth_youtube.py"
+                              % (scope.rsplit("/", 1)[-1], what))
+            else:
+                print("! youtube token records no scopes; re-run scripts/auth_youtube.py for comments/analytics")
+        except Exception as e:  # noqa: BLE001
+            print("! could not read youtube scopes: %s" % type(e).__name__)
     tt_tok = cfg.path("tiktok_token.json")
     report(tt_tok.exists(), "tiktok token file", str(tt_tok))
     if tt_tok.exists():

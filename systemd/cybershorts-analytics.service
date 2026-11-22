@@ -1,0 +1,15 @@
+[Unit]
+Description=cybershorts: pull YouTube video stats, update writing learnings and send the weekly report
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+TimeoutStartSec=45min
+User=cybershorts
+Group=cybershorts
+WorkingDirectory=/opt/cybershorts
+ExecStart=/opt/cybershorts/.venv/bin/python scripts/analytics.py
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full

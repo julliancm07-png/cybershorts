@@ -1,0 +1,10 @@
+[Unit]
+Description=Run cybershorts analytics every Sunday evening
+
+[Timer]
+OnCalendar=Sun *-*-* 18:05:00 America/New_York
+Persistent=true
+Unit=cybershorts-analytics.service
+
+[Install]
+WantedBy=timers.target

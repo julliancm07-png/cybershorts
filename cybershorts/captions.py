@@ -293,9 +293,141 @@ def _karaoke_events(chunks: list[Chunk], words: list[Word], accent: str, kw_colo
     return _fit_events(out, limit)
 
 
+# ---------- v3 overlays: badge pill + CVE data card ----------
+def _rrect(w: float, h: float, r: float) -> str:
+    """ASS drawing of a rounded rectangle with its top-left at (0, 0)."""
+    w, h = int(round(w)), int(round(h))
+    r = int(max(0, min(r, w // 2, h // 2)))
+    k = int(round(r * 0.5523))
+    return (f"m {r} 0 l {w - r} 0 b {w - r + k} 0 {w} {r - k} {w} {r} l {w} {h - r} "
+            f"b {w} {h - r + k} {w - r + k} {h} {w - r} {h} l {r} {h} "
+            f"b {r - k} {h} 0 {h - r + k} 0 {h - r} l 0 {r} b 0 {r - k} {r - k} 0 {r} 0")
+
+
+def _est_width(text: str, size: float, factor: float = 0.72) -> float:
+    return len(text) * size * factor
+
+
+def _sev_color(cvss, severity) -> str:
+    try:
+        v = float(cvss)
+    except (TypeError, ValueError):
+        v = None
+    if v is not None:
+        return "#FF3B30" if v >= 9 else "#FF9500" if v >= 7 else "#FFD60A" if v >= 4 else "#34C759"
+    sev = str(severity or "").strip().lower()
+    return {"critical": "#FF3B30", "high": "#FF9500", "medium": "#FFD60A", "low": "#34C759"}.get(sev, "#FFD60A")
+
+
+def _card_rows(card: dict) -> list[tuple[str, str, str]]:
+    """(kind, text, colour) rows for the truthy values only, in display order."""
+    rows: list[tuple[str, str, str]] = []
+    cve = str(card.get("cve_id") or "").strip()
+    if cve:
+        rows.append(("id", cve.upper(), "#FFFFFF"))
+    cvss, sev = card.get("cvss"), str(card.get("severity") or "").strip()
+    score = ""
+    if cvss not in (None, "", False, 0, 0.0):
+        try:
+            score = f"{float(cvss):.1f}"
+        except (TypeError, ValueError):
+            score = str(cvss).strip()
+    if score or sev:
+        label = " ".join(x for x in ((f"CVSS {score}" if score else ""), sev.upper()) if x)
+        rows.append(("cvss", label, _sev_color(cvss if score else None, sev)))
+    products = card.get("products")
+    if isinstance(products, (list, tuple)):
+        products = ", ".join(str(x).strip() for x in products if str(x).strip())
+    products = str(products or "").strip()
+    if products:
+        txt = f"Affects: {products}"
+        if len(txt) > 40:
+            txt = txt[:39].rstrip(" ,") + "\u2026"
+        rows.append(("affects", txt, "#FFFFFF"))
+    if card.get("exploited"):
+        rows.append(("exploited", "ACTIVELY EXPLOITED", "#FF3B30"))
+    if card.get("patch_available"):
+        rows.append(("patch", "PATCH AVAILABLE \u2713", "#34C759"))
+    return rows
+
+
+def _badge_events(text: str, color: str, w: int, h: int, hook_title: str, hook_size: int, end: float) -> list[str]:
+    text = (text or "").strip()
+    if not text or end <= 0:
+        return []
+    fs = int(w * 0.05)
+    tw = _est_width(text.upper(), fs, 0.74)
+    pw, ph = int(tw + 2 * 0.5 * fs + 10), int(fs * 1.55)
+    pw = min(pw, int(w * 0.9))
+    cx, hook_cy = w // 2, int(h * 0.36)
+    per_line = max(4, int((w - 140) / (hook_size * 0.74)))
+    lines = max(1, -(-len(hook_title or "") // per_line)) if hook_title else 1
+    top = hook_cy - int(lines * hook_size * 1.2 / 2) - int(fs * 0.7) - ph
+    top = max(top, int(h * 0.08))
+    x0, t0, t1 = format_ass_time(0), format_ass_time(0), format_ass_time(end)
+    col = ass_color(color, "#FF3B30")
+    return [
+        f"Dialogue: 4,{t0},{t1},Card,,0,0,0,,{{\\an7\\pos({cx - pw // 2},{top})\\fad(120,200)\\p1\\c{col}&\\bord0\\shad0}}"
+        f"{_rrect(pw, ph, ph // 2)}{{\\p0}}\n",
+        f"Dialogue: 5,{x0},{t1},Card,,0,0,0,,{{\\an5\\q0\\pos({cx},{top + ph // 2})\\fad(120,200)"
+        f"\\fs{fs}\\b1\\bord0\\shad0\\c&H00000000&}}{_escape(text.upper())}\n",
+    ]
+
+
+def _card_events(card: dict, accent: str, w: int, h: int, start: float, end: float,
+                 title_bottom: float) -> list[str]:
+    rows = _card_rows(card)
+    if not rows or end - start < 1.0:
+        return []
+    sc = w / 1080.0
+    pad, box_w = int(34 * sc), int(920 * sc)
+    heights = {"id": 86, "cvss": 84, "affects": 62, "exploited": 62, "patch": 62}
+    box_h = 2 * pad + int(sum(heights[k] for k, _t, _c in rows) * sc)
+    cx = w // 2
+    cy = max(int(h * 0.21), int(title_bottom + 24 * sc + box_h / 2))
+    top = cy - box_h // 2
+    t0, t1 = format_ass_time(start), format_ass_time(end)
+    mv = lambda x, y: f"\\move({x},{y + int(60 * sc)},{x},{y},0,260)"  # noqa: E731
+    out = [
+        f"Dialogue: 4,{t0},{t1},Card,,0,0,0,,{{\\an7\\q0{mv(cx - box_w // 2, top)}\\fad(220,220)\\p1"
+        f"\\c&H00141414&\\1a&H18&\\3c{accent}&\\bord{max(2, int(4 * sc))}\\shad0}}"
+        f"{_rrect(box_w, box_h, int(28 * sc))}{{\\p0}}\n"
+    ]
+    y = top + pad
+    for i, (kind, text, color) in enumerate(rows):
+        rh = int(heights[kind] * sc)
+        ry = y + rh // 2
+        y += rh
+        a0 = 160 + 120 * i
+        reveal = f"\\alpha&HFF&\\t({a0},{a0 + 120},\\alpha&H00&)"
+        fs = {"id": 66, "cvss": 46, "affects": 42, "exploited": 46, "patch": 46}[kind]
+        fs = int(fs * sc)
+        avail = box_w - 2 * pad
+        est = _est_width(text, fs, 0.74 if kind != "affects" else 0.66)
+        if est > avail:
+            fs = max(int(fs * avail / est), int(24 * sc))
+        if kind == "cvss":
+            ph = int(64 * sc)
+            pw = min(int(_est_width(text, fs, 0.74) + fs * 1.2), avail)
+            px = cx - pw // 2
+            out.append(
+                f"Dialogue: 4,{t0},{t1},Card,,0,0,0,,{{\\an7\\q0{mv(px, ry - ph // 2)}\\fad(0,220){reveal}"
+                f"\\p1\\c{ass_color(color)}&\\bord0\\shad0}}{_rrect(pw, ph, ph // 2)}{{\\p0}}\n")
+            out.append(
+                f"Dialogue: 5,{t0},{t1},Card,,0,0,0,,{{\\an5\\q0{mv(cx, ry)}\\fad(0,220){reveal}\\fs{fs}\\b1"
+                f"\\bord0\\shad0\\c&H00000000&}}{_escape(text)}\n")
+            continue
+        col = accent if kind == "id" else ass_color(color)
+        out.append(
+            f"Dialogue: 5,{t0},{t1},Card,,0,0,0,,{{\\an5\\q0{mv(cx, ry)}\\fad(0,220){reveal}\\fs{fs}\\b1"
+            f"\\bord0\\shad0\\c{col}&}}{_escape(text)}\n")
+    return out
+
+
 def build_ass(chunks: list[Chunk], cfg: Config, title: str, handle: str, duration: float, *,
               words: list[Word] | None = None, keywords: list[str] | None = None,
-              beats: list[float] | None = None) -> str:
+              beats: list[float] | None = None, badge: str | None = None,
+              badge_color: str | None = None, card: dict | None = None) -> str:
     w = int(cfg.get("video.width", 1080))
     h = int(cfg.get("video.height", 1920))
     font = cfg.get("captions.font", "DejaVu Sans")
@@ -306,6 +438,9 @@ def build_ass(chunks: list[Chunk], cfg: Config, title: str, handle: str, duratio
     kw_color = ass_color(cfg.get("branding.keyword_color", "#FFD60A"), "#FFD60A")
     bar_on = bool(cfg.get("branding.progress_bar", True))
     end_card_on = bool(cfg.get("branding.end_card", True))
+    card_rows = _card_rows(card) if card else []
+    card_style = (f"Style: Card,{font},46,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,5,0,0,0,1\n"
+                  if (badge or card_rows) else "")
     # ASS colours are &HAABBGGRR
     header = (
         "[Script Info]\nScriptType: v4.00+\n"
@@ -318,7 +453,8 @@ def build_ass(chunks: list[Chunk], cfg: Config, title: str, handle: str, duratio
         f"Style: Title,{font},{int(size * 0.62)},&H0000E5FF,&H0000E5FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,5,0,8,70,70,260,1\n"
         f"Style: Handle,{font},{int(size * 0.4)},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,0,2,60,60,150,1\n"
         f"Style: Hook,{font},{int(size * 1.15)},{kw_color},{kw_color},&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,8,0,5,70,70,0,1\n"
-        f"Style: Bar,{font},20,{accent},{accent},&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1\n\n"
+        f"Style: Bar,{font},20,{accent},{accent},&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1\n"
+        f"{card_style}\n"
         "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
     )
     dur = max(duration, 0.1)
@@ -364,6 +500,21 @@ def build_ass(chunks: list[Chunk], cfg: Config, title: str, handle: str, duratio
             + (f"\\N{{\\c&H00FFFFFF&\\fscx120\\fscy120}}{_escape(handle)}" if handle else "")
             + "\n"
         )
+    ev_limit = beats[-1] if show_end_card else dur  # type: ignore[index]
+    if badge and str(badge).strip():
+        b_end = min(max(hook_s, 1.6), dur)
+        lines.extend(_badge_events(str(badge), badge_color or cfg.get("breaking.badge_color", "#FF3B30"),
+                                   w, h, title or "", int(size * 1.15), b_end))
+    if card_rows:
+        bs = list(beats or [])
+        c_start = float(bs[1]) if len(bs) >= 2 else 2.0
+        c_end = min(c_start + float(cfg.get("data_card.seconds", 4.5) or 4.5), ev_limit)
+        if len(bs) >= 3:
+            c_end = min(c_end, float(bs[2]))
+        per_line = max(4, int((w - 140) / (int(size * 0.62) * 0.74)))
+        t_lines = max(1, -(-len(title or "") // per_line)) if title else 0
+        title_bottom = 260 + t_lines * int(size * 0.62) * 1.2 if t_lines else 0
+        lines.extend(_card_events(card or {}, accent, w, h, c_start, c_end, title_bottom))
     if bar_on:
         dur_ms = int(round(dur * 1000))
         lines.append(
@@ -376,10 +527,12 @@ def build_ass(chunks: list[Chunk], cfg: Config, title: str, handle: str, duratio
 
 def write_ass(chunks: list[Chunk], cfg: Config, title: str, handle: str, duration: float,
               out_path: Path | str, *, words: list[Word] | None = None,
-              keywords: list[str] | None = None, beats: list[float] | None = None) -> Path:
+              keywords: list[str] | None = None, beats: list[float] | None = None,
+              badge: str | None = None, badge_color: str | None = None, card: dict | None = None) -> Path:
     out = Path(out_path)
     out.write_text(
-        build_ass(chunks, cfg, title, handle, duration, words=words, keywords=keywords, beats=beats),
+        build_ass(chunks, cfg, title, handle, duration, words=words, keywords=keywords, beats=beats,
+                  badge=badge, badge_color=badge_color, card=card),
         encoding="utf-8",
     )
     return out

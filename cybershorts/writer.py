@@ -115,13 +115,79 @@ def _truncate(s: str, n: int) -> str:
     return s[: n - 1].rstrip() + "…"
 
 
-def validate_script(data: dict, story: dict, cfg: Config) -> dict:
+CVE_RE = re.compile(r"\bCVE-\d{4}-\d{4,}\b", re.I)
+_URL_RE = re.compile(r"https?://|www\.|\b[\w-]+\.(?:com|org|net|io|gov|co|me|ly)\b", re.I)
+MAX_HOOK_WORDS = 20
+MAX_COMMENT_CHARS = 150
+
+
+def _tags_mod():
+    from . import tags
+
+    return tags
+
+
+def _story_has_cve(story: dict) -> bool:
+    text = " ".join(str(story.get(k) or "") for k in ("title", "summary", "article"))
+    return bool(CVE_RE.search(text))
+
+
+def _plain(text) -> str:
+    """Single-line, tag-free text."""
+    return " ".join(_tags_mod().strip_tags(str(text or "")).split())
+
+
+def _clean_alt_hooks(raw) -> list[str]:
+    """Alternative hooks: one paragraph each, <= 20 words, no tags."""
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, (list, tuple)):
+        return []
+    out: list[str] = []
+    for h in raw:
+        if isinstance(h, dict):
+            h = h.get("hook") or h.get("text") or ""
+        text = str(h or "").strip()
+        if not text or re.search(r"\n\s*\n", text):
+            continue
+        text = _plain(text)
+        if text and len(text.split()) <= MAX_HOOK_WORDS:
+            out.append(text)
+    return out
+
+
+def _clean_first_comment(raw) -> str:
+    text = _plain(raw)
+    if not text or len(text) > MAX_COMMENT_CHARS or not text.endswith("?") or _URL_RE.search(text):
+        return ""
+    return text
+
+
+def _clean_data_card(raw) -> dict | None:
+    """Pass the LLM's raw card through as a plain dict; pipeline confirms it against the sources."""
+    if not isinstance(raw, dict) or not raw:
+        return None
+    return dict(raw)
+
+
+def series_name_for(cfg: Config, name, options) -> dict | None:
+    """The offered series option matching `name` (case-insensitive), else None."""
+    want = str(name or "").strip().lower()
+    if not want:
+        return None
+    for opt in options or []:
+        if str(opt.get("name", "")).strip().lower() == want:
+            return opt
+    return None
+
+
+def validate_script(data: dict, story: dict, cfg: Config, series_options: list[dict] | None = None) -> dict:
     """Validate + coerce LLM script JSON. Raises ValueError if essential fields are missing."""
     for key in ("on_screen_title", "script"):
         if not str(data.get(key, "")).strip():
             raise ValueError(f"Script JSON missing '{key}'")
     sign_off = cfg.get("channel.sign_off", "")
-    script = str(data["script"]).strip()
+    script = _tags_mod().normalize_paragraphs(str(data["script"]))
     if sign_off:
         if sign_off.lower().rstrip(".!") not in script.lower():
             script = f"{script}\n\n{sign_off}"
@@ -143,10 +209,16 @@ def validate_script(data: dict, story: dict, cfg: Config) -> dict:
             break
         if fallback not in [x.lower() for x in tags]:
             tags.append(fallback)
-    yt_title = str(data.get("youtube_title") or data["on_screen_title"]).strip()
+    series_opt = series_name_for(cfg, data.get("series"), series_options)
+    if series_opt:
+        stag = re.sub(r"[^A-Za-z0-9_]", "", str(series_opt.get("hashtag") or "").lstrip("#"))
+        if stag:
+            tags = [stag] + [t for t in tags if t.lower() != stag.lower()]
+            tags = tags[:6]
+    yt_title = _plain(data.get("youtube_title") or data["on_screen_title"])
     yt_title = re.sub(r"\s*#Shorts\s*$", "", yt_title, flags=re.I)
     yt_title = _truncate(yt_title, 95 - len(" #Shorts")) + " #Shorts"
-    desc = str(data.get("description") or "").strip()
+    desc = _tags_mod().strip_tags(str(data.get("description") or "")).strip()
     url = story["url"]
     if url not in desc:
         desc = f"{desc}\nSource: {url}".strip()
@@ -165,8 +237,8 @@ def validate_script(data: dict, story: dict, cfg: Config) -> dict:
         k = " ".join(str(k).split())
         if k and len(k) <= 24 and k.lower() not in [x.lower() for x in keywords]:
             keywords.append(k)
-    return {
-        "on_screen_title": _truncate(str(data["on_screen_title"]), 42),
+    out = {
+        "on_screen_title": _truncate(_plain(data["on_screen_title"]), 42),
         "script": script,
         "youtube_title": yt_title,
         "description": desc,
@@ -174,12 +246,61 @@ def validate_script(data: dict, story: dict, cfg: Config) -> dict:
         "pexels_query": query,
         "keywords": keywords[:6],
     }
+    # tags live only in voice_script (TTS); script is always tag-free
+    tagmod = _tags_mod()
+    if tagmod.tags_supported(cfg):
+        allowed = cfg.get("voice.elevenlabs.allowed_tags", None)
+        max_tags = cfg.get("voice.elevenlabs.max_tags", None)
+        voice = tagmod.sanitize_tags(script, allowed, max_tags)
+    else:
+        voice = tagmod.strip_tags(script)
+    voice = tagmod.normalize_paragraphs(voice)
+    out["script"] = tagmod.normalize_paragraphs(tagmod.strip_tags(voice))
+    if voice != out["script"]:
+        out["voice_script"] = voice
+    n_hooks = int(cfg.get("llm.hooks", 3) or 1)
+    if n_hooks > 1:
+        first = (tagmod.split_paragraphs(out["script"]) or [""])[0]
+        hooks = [first] if first else []
+        for h in _clean_alt_hooks(data.get("alt_hooks")):
+            if h.lower() not in [x.lower() for x in hooks]:
+                hooks.append(h)
+        hooks = hooks[:n_hooks]
+        if len(hooks) > 1:
+            out["hooks"] = hooks
+    if series_opt:
+        out["series"] = str(series_opt["name"])
+    if cfg.get("youtube.first_comment", True):
+        comment = _clean_first_comment(data.get("first_comment"))
+        if comment:
+            out["first_comment"] = comment
+    if cfg.get("data_card.enabled", True) and _story_has_cve(story):
+        card = _clean_data_card(data.get("data_card"))
+        if card:
+            out["data_card"] = card
+    return out
 
 
-def write_script(cfg: Config, story: dict) -> dict:
+def _learnings(cfg: Config) -> str:
+    """Style guidance distilled from past performance (analytics); empty when absent/disabled."""
+    if not cfg.get("analytics.use_learnings", True):
+        return ""
+    from . import analytics  # late import: analytics imports writer
+
+    return analytics.read_learnings(cfg)
+
+
+def write_script(cfg: Config, story: dict, *, series_options: list[dict] | None = None,
+                 breaking: bool = False) -> dict:
     lo, hi = cfg.get("llm.target_words", [65, 95])
     sign_off = cfg.get("channel.sign_off", "")
     style_notes = str(cfg.get("llm.style_notes", "") or "").strip()
+    use_tags = _tags_mod().tags_supported(cfg)
+    n_hooks = int(cfg.get("llm.hooks", 3) or 1)
+    want_comment = bool(cfg.get("youtube.first_comment", True))
+    want_card = bool(cfg.get("data_card.enabled", True)) and _story_has_cve(story)
+    options = list(series_options or [])
+    learnings = _learnings(cfg)
     system = (
         "You write the narration for 30-45 second vertical news videos about IT and security, "
         "read aloud by a text-to-speech voice. Write for the ear, the way a sharp friend who works "
@@ -211,6 +332,12 @@ def write_script(cfg: Config, story: dict) -> dict:
         "Don't read CVE ids or version strings aloud; put them in the description instead.\n"
         f"- {lo}-{hi} words, ending with exactly: \"{sign_off}\"\n"
         + (f"- Channel style notes: {style_notes}\n" if style_notes else "")
+        + ("- This is breaking news that just happened: open with what is happening right now and "
+           "why it can't wait.\n" if breaking else "")
+        + (_tag_instructions(cfg) if use_tags else "")
+        + (f"\nStyle guidance learned from which past videos performed best (a style hint only, "
+           f"never a source of facts):\n{learnings}\n" if learnings else "")
+        + (_series_instructions(options) if options else "")
         + "\nReturn JSON only with these keys:\n"
         '- "on_screen_title": punchy headline for the top of the video, max 42 characters\n'
         '- "script": the narration\n'
@@ -221,16 +348,73 @@ def write_script(cfg: Config, story: dict) -> dict:
         '- "pexels_query": 2-4 word generic visual search query (e.g. "server room")\n'
         '- "keywords": 3-6 short words or phrases copied from your script (product, threat, action) '
         'to emphasise on screen, each max 24 characters\n'
+        + (f'- "alt_hooks": list of {n_hooks - 1} different opening hooks for the same story, each one '
+           f'paragraph of at most {MAX_HOOK_WORDS} words, same facts as the script, written to replace '
+           f'the script\'s first paragraph\n' if n_hooks > 1 else "")
+        + ('- "series": the exact name of the series this story fits, or "" if none fits\n'
+           if options else "")
+        + (f'- "first_comment": a question to pin as the first comment, max {MAX_COMMENT_CHARS} '
+           f'characters, ending with "?", no URLs, no hashtags\n' if want_comment else "")
+        + ('- "data_card": {"cve_id": "CVE-YYYY-NNNN", "cvss": number or null, "severity": string or null, '
+           '"products": [up to 2 product names], "exploited": true/false/null, "patch_available": '
+           'true/false/null}, using ONLY facts stated in the source; null for anything not stated\n'
+           if want_card else "")
     )
     last: Exception | None = None
     for attempt in range(2):
         text = chat(cfg, [{"role": "system", "content": system}, {"role": "user", "content": user}])
         try:
-            return validate_script(extract_json(text), story, cfg)
+            return validate_script(extract_json(text), story, cfg, series_options=options or None)
         except ValueError as e:
             last = e
             log.warning("Script parse/validate failed (attempt %d): %s", attempt + 1, e)
     raise RuntimeError(f"LLM did not return a valid script: {last}")
+
+
+def _tag_instructions(cfg: Config) -> str:
+    allowed = cfg.get("voice.elevenlabs.allowed_tags", None) or _tags_mod().DEFAULT_ALLOWED
+    max_tags = cfg.get("voice.elevenlabs.max_tags", None) or _tags_mod().DEFAULT_MAX_TAGS
+    names = ", ".join(f"[{a}]" for a in allowed)
+    return (f"- You may add at most {max_tags} voice tags from this list, placed right before the "
+            f"words they colour: {names}. Never put a tag on its own line, and never use any other "
+            "tag. Use them sparingly.\n")
+
+
+def _series_instructions(options: list[dict]) -> str:
+    lines = []
+    for o in options:
+        line = f'- "{o.get("name", "")}": fits when the story is about {o.get("match", "")}.'
+        if o.get("guidance"):
+            line += f' If you pick it: {o["guidance"]}'
+        lines.append(line)
+    return ("\nThis channel runs recurring series. If the story clearly fits one, set the \"series\" "
+            "key to its exact name and follow its guidance; otherwise leave it empty.\n"
+            + "\n".join(lines) + "\n")
+
+
+def pick_hook(cfg: Config, story: dict, hooks: list[str]) -> int:
+    """Index of the strongest hook; 0 on any error or when there is nothing to choose."""
+    if not hooks or len(hooks) < 2:
+        return 0
+    try:
+        lines = "\n".join(f"{i}. {h}" for i, h in enumerate(hooks))
+        prompt = (
+            "You edit a short-form IT and cybersecurity news channel. Pick the opening hook most "
+            "likely to stop a viewer from scrolling. All hooks state the same facts; prefer the one "
+            "with the clearest stakes and no clickbait or exaggeration.\n\n"
+            f"Story: {story.get('title', '')}\n\nHooks:\n{lines}\n\n"
+            'Respond with JSON only: {"index": <number>}'
+        )
+        model = (str(cfg.get("llm.hook_model", "") or "").strip()
+                 or str(cfg.get("llm.fact_check_model", "") or "").strip())
+        text = chat(cfg, [{"role": "user", "content": prompt}], temperature=0, model=model or None)
+        idx = int(extract_json(text).get("index", 0))
+        if 0 <= idx < len(hooks):
+            return idx
+        log.warning("pick_hook index %s out of range; using 0", idx)
+    except Exception as e:  # noqa: BLE001
+        log.warning("pick_hook failed (%s); using 0", type(e).__name__)
+    return 0
 
 
 def fact_check(cfg: Config, story: dict, data: dict) -> dict:
@@ -245,9 +429,13 @@ def fact_check(cfg: Config, story: dict, data: dict) -> dict:
         claims = (f"on_screen_title: {data.get('on_screen_title', '')}\n"
                   f"script: {data.get('script', '')}\n"
                   f"description: {data.get('description', '')}")
+        active = data.get("hook_index") if isinstance(data.get("hook_index"), int) else 0
+        alts = [str(h) for i, h in enumerate(data.get("hooks") or []) if i != active and str(h).strip()]
+        if alts:
+            claims += "\nalternative opening hooks: " + " | ".join(alts)
         prompt = (
             "You are a strict fact-checker for a short IT/security news video.\n"
-            "List each claim in the script, on_screen_title or description that the source does not support. "
+            "List each claim in the script, on_screen_title, description or alternative opening hooks that the source does not support. "
             "Rephrasing, simplification and summary are supported; only flag facts (numbers, names, "
             "versions, dates, who/what is affected, exploitation status) that the source does not state "
             "or that it contradicts. Ignore tone, the hook's framing and the sign-off"

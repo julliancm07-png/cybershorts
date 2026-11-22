@@ -17,7 +17,8 @@ def main() -> int:
 
     cfg = load()
     try:
-        pipeline.make_draft(cfg)
+        with pipeline.draft_lock(cfg, blocking=True):  # one draft job at a time (shared with breaking/bot)
+            pipeline.make_draft(cfg)
     except Exception as e:  # noqa: BLE001
         log.exception("make_draft failed")
         health.ping(cfg.healthcheck_url, "down", str(e)[:200])

@@ -24,6 +24,8 @@ from pathlib import Path
 
 import requests
 
+from .tags import TAG_RE, is_tag_model, merge_tag_only, split_paragraphs, strip_tags, tags_supported
+
 log = logging.getLogger(__name__)
 
 KOKORO_BASE = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/"
@@ -35,7 +37,7 @@ _SENT_SPLIT = re.compile(r"(?<=[.!?])[\"')\]]*\s+(?=[\"'(\[]?[A-Z0-9])")
 # ---------- text prep (pure, unit-tested) ----------
 def split_beats(text: str) -> list[list[str]]:
     """Paragraphs (blank-line or newline separated) -> sentences."""
-    paras = [p.strip() for p in re.split(r"\n\s*\n|\n", text or "") if p.strip()]
+    paras = split_paragraphs(text)
     out = []
     for p in paras:
         sents = [s.strip() for s in _SENT_SPLIT.split(p) if s.strip()]
@@ -58,6 +60,23 @@ def clean_for_speech(text: str) -> str:
     text = text.replace("&", " and ").replace("%", " percent").replace("/", " or ")
     text = re.sub(r"[()\[\]{}*_#]", "", text)
     return re.sub(r"[ \t]+", " ", text).strip()
+
+
+def prepare_spoken(text: str, table: dict | None, keep_tags: bool) -> str:
+    """Spoken text: cleaned + pronunciations. Tags are stripped, or (keep_tags) protected
+    from cleaning/pronunciations and restored so a tag model can perform them."""
+    if not keep_tags:
+        return apply_pronunciations(clean_for_speech(strip_tags(text)), table)
+    found: list[str] = []
+
+    def hold(m: re.Match) -> str:
+        name = " ".join(m.group(1).lower().split())
+        found.append(f"[{name}]")
+        return f"\ue000{len(found) - 1}\ue001"
+
+    spoken = apply_pronunciations(clean_for_speech(re.sub(TAG_RE, hold, text or "")), table)
+    spoken = re.sub("\ue000(\\d+)\ue001", lambda m: found[int(m.group(1))], spoken)
+    return merge_tag_only(spoken)
 
 
 # ---------- model files ----------
@@ -134,6 +153,11 @@ class _ElevenLabs:
             "style": float(cfg.get("voice.elevenlabs.style", 0.15)),
             "use_speaker_boost": bool(cfg.get("voice.elevenlabs.speaker_boost", True)),
         }
+        # v3 and other tag models: no request stitching, and stability only takes 0.0 / 0.5 / 1.0
+        if is_tag_model(cfg, self.model):
+            self.context = False
+            st = self.settings["stability"]
+            self.settings["stability"] = min((0.0, 0.5, 1.0), key=lambda v: abs(v - st))
         speed = float(cfg.get("voice.elevenlabs.speed", 1.0))
         if abs(speed - 1.0) > 1e-6:
             self.settings["speed"] = speed
@@ -291,7 +315,7 @@ def _synthesize_with(cfg, engine_name: str, text: str, out_wav) -> Path:
     p_pause = float(cfg.get("voice.paragraph_pause", 0.45))
     room = cfg.get("voice.room_tone_db", -62)
     by_paragraph = str(cfg.get("voice.chunking", "paragraph")).lower() != "sentence"
-    spoken = apply_pronunciations(clean_for_speech(text), cfg.get("voice.pronunciations") or {})
+    spoken = prepare_spoken(text, cfg.get("voice.pronunciations") or {}, tags_supported(cfg, engine_name))
 
     # paragraph mode: one generation per beat, so sentences flow with natural intonation;
     # sentence mode: one generation per sentence (more control, choppier).

@@ -21,8 +21,10 @@ def esc(text: str) -> str:
 
 
 def keyboard(draft_id, yt_enabled: bool = True, tt_enabled: bool = True,
-             manual_fallback: bool = True) -> dict:
-    """Review keyboard. Pass yt/tt_enabled=False to omit already-done or disabled targets."""
+             manual_fallback: bool = True, *, alt_hooks=()) -> dict:
+    """Review keyboard. Pass yt/tt_enabled=False to omit already-done or disabled targets.
+
+    alt_hooks: hook numbers (ints); one "Use hook N" button each (callback hook:N:id)."""
     rows = []
     if yt_enabled and tt_enabled:
         rows.append([{"text": "✅ Post both", "callback_data": f"pub:all:{draft_id}"}])
@@ -35,6 +37,11 @@ def keyboard(draft_id, yt_enabled: bool = True, tt_enabled: bool = True,
         rows.append(row2)
     if manual_fallback and not yt_enabled and not tt_enabled:
         rows.append([{"text": "\U0001f4e5 Posted manually", "callback_data": f"man:{draft_id}"}])
+    hook_row = []
+    for n in alt_hooks or ():
+        hook_row.append({"text": f"\U0001fa9d Use hook {n}", "callback_data": f"hook:{n}:{draft_id}"})
+    if hook_row:
+        rows.append(hook_row)
     rows.append([{"text": "❌ Reject", "callback_data": f"rej:{draft_id}"}])
     return {"inline_keyboard": rows}
 
@@ -141,6 +148,15 @@ class Telegram:
         # omitting reply_markup leaves the keyboard; send empty markup to remove it
         data["reply_markup"] = self._markup(reply_markup) if reply_markup else json.dumps({"inline_keyboard": []})
         return self._call("editMessageCaption", data=data)
+
+    def edit_reply_markup(self, message_id, reply_markup=None) -> dict:
+        """Replace only the keyboard of a message (None removes it); the body is untouched."""
+        data = {
+            "chat_id": self.chat_id,
+            "message_id": message_id,
+            "reply_markup": self._markup(reply_markup) if reply_markup else json.dumps({"inline_keyboard": []}),
+        }
+        return self._call("editMessageReplyMarkup", data=data)
 
     def edit_text(self, message_id, text: str) -> dict:
         """Replace a text message's body and remove its keyboard."""

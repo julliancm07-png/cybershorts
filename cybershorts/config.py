@@ -20,7 +20,7 @@ DEFAULTS: dict[str, Any] = {
         {"name": "CISA", "url": "https://www.cisa.gov/cybersecurity-advisories/all.xml"},
     ],
     "news": {"max_age_hours": 36, "max_candidates": 25, "fetch_full_text": True, "max_article_chars": 6000},
-    "llm": {"model": "anthropic/claude-haiku-4.5", "temperature": 0.6, "target_words": [65, 95], "style_notes": "", "provider": {"sort": "price"}, "fact_check": True, "fact_check_model": ""},
+    "llm": {"model": "anthropic/claude-haiku-4.5", "temperature": 0.6, "target_words": [65, 95], "style_notes": "", "provider": {"sort": "price"}, "fact_check": True, "fact_check_model": "", "hooks": 3, "hook_model": ""},
     "voice": {
         "mode": "tts",
         "engine": "kokoro",
@@ -37,6 +37,10 @@ DEFAULTS: dict[str, Any] = {
             "style": 0.15,
             "speaker_boost": True,
             "speed": 1.0,
+            "tag_models": ["eleven_v3"],
+            "audio_tags": True,
+            "allowed_tags": ["curious", "excited", "whispers", "sighs", "serious", "laughs"],
+            "max_tags": 3,
         },
         "chunking": "paragraph",
         "room_tone_db": -62,
@@ -84,10 +88,59 @@ DEFAULTS: dict[str, Any] = {
         "category_id": "28",
         "contains_synthetic_media": False,
         "made_for_kids": False,
+        "first_comment": True,
     },
     "tiktok": {"enabled": True},
     "music": {"enabled": True, "folder": "music", "volume_db": -20, "duck": True, "on_tiktok": False},
     "cleanup": {"keep_days": 7},
+    "series": {
+        "enabled": True,
+        "items": [
+            {
+                "name": "Patch This Now", "hashtag": "PatchThisNow", "badge": "PATCH THIS NOW",
+                "per_week": None, "match": "patch, update, fixed, actively exploited, KEV",
+                "guidance": "Name the product, the fix and any deadline.",
+            },
+            {
+                "name": "Scam of the Week", "hashtag": "ScamOfTheWeek", "badge": "SCAM OF THE WEEK",
+                "per_week": 1, "match": "scam, phishing, fraud, smishing, impersonation",
+                "guidance": "How the scam works + the one tell.",
+            },
+            {
+                "name": "CVE in 30s", "hashtag": "CVEin30s", "badge": "CVE IN 30S",
+                "per_week": None, "match": "a single named CVE",
+                "guidance": "What, who, how bad, what to do.",
+            },
+        ],
+    },
+    "data_card": {"enabled": True, "nvd": True, "seconds": 4.5},
+    "breaking": {
+        "enabled": True,
+        "kev": True,
+        "rss_urgency": True,
+        "urgency_threshold": 8,
+        "rss_max_age_minutes": 120,
+        "max_score_items": 15,
+        "urgency_model": "",
+        "daily_cap": 2,
+        "quiet_hours": ["22:00", "07:00"],
+        "timezone": "America/New_York",
+        "kev_max_age_days": 2,
+        "badge": "BREAKING",
+        "badge_color": "#FF3B30",
+        "title_prefix": "\U0001F6A8 ",
+    },
+    "analytics": {
+        "enabled": True,
+        "lookback_days": 90,
+        "min_age_hours": 48,
+        "min_videos": 6,
+        "top_n": 5,
+        "learnings_max_chars": 800,
+        "use_learnings": True,
+        "report": True,
+        "model": "",
+    },
 }
 
 SECRET_KEYS = [
@@ -101,6 +154,7 @@ SECRET_KEYS = [
     "TIKTOK_CLIENT_SECRET",
     "TIKTOK_REDIRECT_URI",
     "HEALTHCHECK_URL",
+    "NVD_API_KEY",
 ]
 
 DATA_SUBDIRS = ("videos", "voices", "models", "work", "broll", "brand", "music")

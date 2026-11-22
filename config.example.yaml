@@ -37,6 +37,10 @@ llm:
     sort: price
   fact_check: true         # second model pass that checks the script against the article
   fact_check_model: ""     # empty = same model as above; any OpenRouter model ID to use another
+  # Hook candidates per draft: the first paragraph plus alternates to pick from in Telegram. 1 = off.
+  hooks: 3
+  # Model that scores hook candidates; empty = fact_check_model, then model.
+  hook_model: ""
 
 # Narration. mode: tts (AI voice) or record (you send a Telegram voice message).
 voice:
@@ -55,6 +59,14 @@ voice:
     style: 0.15              # a little delivery style; 0 = neutral
     speaker_boost: true
     speed: 1.0               # 0.7-1.2
+    # Models that understand audio tags such as [sighs]; other models get the tags stripped.
+    tag_models: [eleven_v3]
+    # Let the writer add a few audio tags to the voice script (captions never show them).
+    audio_tags: true
+    # Only these audio tags are kept; anything else is dropped.
+    allowed_tags: [curious, excited, whispers, sighs, serious, laughs]
+    # Most audio tags kept in one script.
+    max_tags: 3
   chunking: paragraph      # paragraph = sentences flow naturally (recommended); sentence = one clip per sentence
   room_tone_db: -62        # faint background in pauses instead of dead silence; null = pure silence
   sentence_pause: 0.22     # seconds between sentences (sentence chunking only)
@@ -143,6 +155,8 @@ youtube:
   category_id: "28"
   contains_synthetic_media: false
   made_for_kids: false
+  # Post an auto first comment after upload. The API cannot pin it; pin it in the YouTube app.
+  first_comment: true
 
 # TikTok upload. Drafts go to your TikTok inbox; you post from the app. Requires scripts/auth_tiktok.py.
 tiktok:
@@ -160,3 +174,76 @@ music:
 # Delete rendered videos this many days after they are published or rejected.
 cleanup:
   keep_days: 7
+
+# Recurring series labels. A draft may get one series: its badge, hashtag and writing guidance.
+series:
+  # Master switch for series labels.
+  enabled: true
+  items:
+    # Patch This Now: a fix or update is out, or the flaw is being exploited.
+    - {name: "Patch This Now", hashtag: PatchThisNow, badge: "PATCH THIS NOW", per_week: null, match: "patch, update, fixed, actively exploited, KEV", guidance: "Name the product, the fix and any deadline."}
+    # Scam of the Week: a scam, phishing or fraud story; at most one per week.
+    - {name: "Scam of the Week", hashtag: ScamOfTheWeek, badge: "SCAM OF THE WEEK", per_week: 1, match: "scam, phishing, fraud, smishing, impersonation", guidance: "How the scam works + the one tell."}
+    # CVE in 30s: a story about one named CVE.
+    - {name: "CVE in 30s", hashtag: CVEin30s, badge: "CVE IN 30S", per_week: null, match: "a single named CVE", guidance: "What, who, how bad, what to do."}
+
+# Data card: a short CVE panel (CVSS, severity, exploited, patch) shown over CVE stories.
+data_card:
+  # Master switch for the data card.
+  enabled: true
+  # Look up CVSS scores from the NVD API. Optional NVD_API_KEY in .env raises the rate limit.
+  nvd: true
+  # Seconds the card stays on screen.
+  seconds: 4.5
+
+# Breaking drafts, created by scripts/breaking.py on a timer.
+breaking:
+  # Master switch for breaking drafts.
+  enabled: true
+  # Watch the CISA Known Exploited Vulnerabilities (KEV) catalog for new entries.
+  kev: true
+  # Also score fresh RSS items for urgency in one LLM call.
+  rss_urgency: true
+  # Minimum urgency score (0-10) for an RSS item to become a breaking draft.
+  urgency_threshold: 8
+  # Only RSS items published within this many minutes are scored.
+  rss_max_age_minutes: 120
+  # Most RSS items sent to the urgency scorer in one call.
+  max_score_items: 15
+  # Model for urgency scoring; empty = llm.model.
+  urgency_model: ""
+  # Most breaking drafts created per local day.
+  daily_cap: 2
+  # No breaking drafts between these local times (HH:MM).
+  quiet_hours: ["22:00", "07:00"]
+  # Time zone for quiet_hours and the daily cap.
+  timezone: America/New_York
+  # Ignore KEV entries added to the catalog more than this many days ago.
+  kev_max_age_days: 2
+  # Badge text drawn on breaking videos.
+  badge: "BREAKING"
+  # Badge colour.
+  badge_color: "#FF3B30"
+  # Prefix added to breaking YouTube titles.
+  title_prefix: "🚨 "
+
+# Weekly analytics job (scripts/analytics.py): feeds what performed well back into writing.
+analytics:
+  # Master switch for the analytics job.
+  enabled: true
+  # Only videos published within this many days are tracked.
+  lookback_days: 90
+  # A video's stats count only once it is this old (YouTube analytics lags 2-3 days).
+  min_age_hours: 48
+  # Below this many eligible videos no learnings are written.
+  min_videos: 6
+  # Videos in each of the top and bottom groups that are compared.
+  top_n: 5
+  # Cap on the size of data/learnings.md.
+  learnings_max_chars: 800
+  # Feed data/learnings.md into the writer prompt.
+  use_learnings: true
+  # Send the weekly Telegram report.
+  report: true
+  # Model for the learnings pass; empty = llm.model.
+  model: ""

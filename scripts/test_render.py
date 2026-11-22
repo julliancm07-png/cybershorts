@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Offline smoke test: synthetic clips/audio/logo + fake word timings -> 1080x1920 mp4 (v2 visuals)."""
+import argparse
 import sys
 from pathlib import Path
 
@@ -25,7 +26,14 @@ def ff(*args: str) -> None:
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", *args], check=True, timeout=120)
 
 
-def main() -> int:
+CARD = {"cve_id": "CVE-2025-12345", "cvss": 9.8, "severity": "Critical",
+        "products": ["Acme VPN Gateway", "Acme Edge"], "exploited": True, "patch_available": True}
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--keep-frames", metavar="DIR", help="keep extracted PNG frames in DIR")
+    args = ap.parse_args(argv)
     tmp = tempfile.TemporaryDirectory()
     os.environ["APP_DIR"] = tmp.name  # keep data/ out of the repo
     from cybershorts import captions, render
@@ -116,11 +124,33 @@ def main() -> int:
             assert (sw, sh) == (1080, 1920), "%s: bad size %dx%d" % (label, sw, sh)
             assert abs(sd - expect) < 0.35, "%s: duration %.2f, expected ~%.2f" % (label, sd, expect)
 
-    frames_dir = Path(tmp.name) / "frames"
+    # v3 overlays: badge pill during the hook + animated data card inside the beat-2 window.
+    ass2 = work / "test_render_v3.ass"
+    captions.write_ass(chunks, cfg, "Critical VPN flaw exploited", cfg.get("channel.handle", "@cybershorts"),
+                       AUDIO_SECONDS, ass2, words=words, keywords=KEYWORDS, beats=beats,
+                       badge="BREAKING", badge_color="#FF3B30", card=CARD)
+    text2 = ass2.read_text(encoding="utf-8")
+    assert "Style: Card" in text2 and "CVE-2025-12345" in text2, "badge/card missing from ASS"
+    out2 = cfg.path("videos", "test_render_v3.mp4")
+    render.render(cfg, wav, ass2, clips, out2, beats=beats)
+    w2, h2, dur2 = probe(out2)
+    assert (w2, h2) == (1080, 1920), "v3 bad size %dx%d" % (w2, h2)
+    assert abs(dur2 - expect) < 0.35, "v3 duration %.2f, expected ~%.2f" % (dur2, expect)
+
+    if args.keep_frames:
+        frames_dir = Path(args.keep_frames)
+    else:
+        frames_dir = Path(tmp.name) / "frames"
     frames_dir.mkdir(parents=True, exist_ok=True)
     for name, t in (("hook", 0.5), ("karaoke", 3.0), ("endcard", expect - 1.2)):
         ff("-ss", f"{t:.2f}", "-i", str(out), "-frames:v", "1", str(frames_dir / f"{name}.png"))
-    print("OK %dx%d %.2fs (expected ~%.2f); frames rendered and discarded" % (w, h, dur, expect))
+    card_t = (beats[1] + min(beats[2], beats[1] + 4.5)) / 2 + 0.2
+    for name, t in (("v3_hook", 0.6), ("v3_card", card_t), ("v3_endcard", expect - 1.2)):
+        ff("-ss", f"{t:.2f}", "-i", str(out2), "-frames:v", "1", str(frames_dir / f"{name}.png"))
+    for name in ("hook", "karaoke", "endcard", "v3_hook", "v3_card", "v3_endcard"):
+        assert (frames_dir / f"{name}.png").stat().st_size > 1000, "frame %s missing" % name
+    note = "frames kept in %s" % frames_dir if args.keep_frames else "frames rendered and discarded"
+    print("OK %dx%d %.2fs (expected ~%.2f); v3 badge+card render ok; %s" % (w, h, dur, expect, note))
     tmp.cleanup()
     return 0
 

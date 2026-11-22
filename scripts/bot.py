@@ -37,6 +37,11 @@ def main() -> int:
     if not cfg.telegram_bot_token or not cfg.telegram_chat_id:
         log.error("TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be set in .env")
         return 2
+    conn = db.connect(cfg)
+    try:
+        db.init(conn)  # apply migrations before any publish/status handler runs
+    finally:
+        conn.close()
     tg = Telegram(cfg.telegram_bot_token, cfg.telegram_chat_id)
     allowed = str(cfg.telegram_chat_id)
     offset_file = cfg.path("bot_offset")
@@ -121,6 +126,8 @@ def main() -> int:
                 base = {"all": {"yt", "tt"}, "yt": {"yt"}, "tt": {"tt"}}[kind]
             elif action in ("rej", "man") and len(parts) == 2:
                 draft_id = int(parts[1])
+            elif action == "hook" and len(parts) == 3:
+                hook_n, draft_id = int(parts[1]), int(parts[2])
             else:
                 raise ValueError("bad callback")
         except (ValueError, IndexError, KeyError):
@@ -146,6 +153,9 @@ def main() -> int:
                 except Exception:  # noqa: BLE001
                     log.warning("Could not send the TikTok caption", exc_info=True)
             offer_retry(draft_id, targets)
+        elif action == "hook":
+            answer(cb_id, "Swapping hook...")
+            reply(pipeline.press_hook(cfg, tg, draft_id, hook_n, msg.get("message_id"), lock_timeout=5))
         elif action == "rej":
             try:
                 pipeline.reject(cfg, draft_id)
@@ -199,7 +209,13 @@ def main() -> int:
         cmd = text.split()[0].split("@")[0].lower() if text.startswith("/") else ""
         if cmd == "/draft":
             reply("Working on a draft...")
-            if pipeline.make_draft(cfg) is None:
+            try:
+                with pipeline.draft_lock(cfg, blocking=True, timeout=5):
+                    made = pipeline.make_draft(cfg)
+            except pipeline.Busy:
+                reply("A draft is already being made; try /draft again in a moment.")
+                return
+            if made is None:
                 reply("No new stories right now.")
         elif cmd == "/status":
             handle_status()

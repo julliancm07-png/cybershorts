@@ -55,11 +55,27 @@ chown -R cybershorts:cybershorts /opt/cybershorts/data/brand
 
 Every feature can be switched off in `config.yaml`: `captions.style: plain`, `video.hook_seconds: 0`, `branding.progress_bar: false`, `branding.end_card: false`, `llm.fact_check: false`.
 
+## v3 features
+
+Deploy steps after pulling v3 (no new Python dependencies):
+
+1. `csgit pull`, then `systemctl restart cybershorts-bot`.
+2. Google Cloud: enable the YouTube Analytics API. Add the `youtube.force-ssl` and `yt-analytics.readonly` scopes to the OAuth consent screen.
+3. Re-run `scripts/auth_youtube.py` (over an SSH tunnel) and tick every box. Then run `scripts/doctor.py`.
+4. Install the timers: copy the `cybershorts-breaking` and `cybershorts-analytics` units to `/etc/systemd/system/`, run `systemctl daemon-reload`, then `systemctl enable --now cybershorts-breaking.timer cybershorts-analytics.timer`. The first breaking run only seeds the KEV list and creates no draft.
+5. Optional: set `voice.engine: elevenlabs` and `voice.elevenlabs.model: eleven_v3` for audio tags (both are needed); add `NVD_API_KEY` to `.env`; tune `breaking.quiet_hours`, `breaking.daily_cap` and `series` in `config.yaml`.
+6. Pin each auto-posted first comment in the YouTube app. The API cannot pin comments.
+7. Learnings start once at least 6 videos are 48 hours old. Analytics lags 2-3 days.
+
+Note: with an old `config.yaml` (one that lacks the v3 keys), every v3 feature defaults to on: breaking drafts (once the timer is enabled), first comments, NVD lookups, and the hook-pick LLM call. To turn them off, set `breaking.enabled: false`, `youtube.first_comment: false`, `data_card.nvd: false` and `llm.hooks: 1` (1 also disables alternate hooks and the hook-pick call).
+
 ## Commands
 
 ```
 python scripts/make_draft.py      # create one draft now (also run by the timer)
 python scripts/bot.py             # Telegram review bot (long-running, run by systemd)
+python scripts/breaking.py --dry-run      # show what a breaking run would do; no draft, no Telegram, no seen/used/urgency marks; still fetches feeds and calls the LLM
+python scripts/analytics.py --no-telegram # pull stats and update learnings without the Telegram report
 python scripts/doctor.py          # check config, FFmpeg, fonts, tokens and API keys
 python scripts/test_render.py     # offline render smoke test (no network)
 python -m unittest discover -s tests -v   # unit tests (stdlib only)

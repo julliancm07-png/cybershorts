@@ -1,6 +1,7 @@
-"""YouTube Data API upload."""
+"""YouTube Data API upload, first comments and analytics."""
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
@@ -8,7 +9,11 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+SCOPE_UPLOAD = "https://www.googleapis.com/auth/youtube.upload"
+SCOPE_FORCE_SSL = "https://www.googleapis.com/auth/youtube.force-ssl"
+SCOPE_ANALYTICS = "https://www.googleapis.com/auth/yt-analytics.readonly"
+SCOPE_BROAD = "https://www.googleapis.com/auth/youtube"
+SCOPES = [SCOPE_UPLOAD, SCOPE_FORCE_SSL, SCOPE_ANALYTICS]
 
 
 def token_path(cfg) -> Path:
@@ -22,14 +27,46 @@ def _clean(text: str) -> str:
 
 def _save(creds, path: Path) -> None:
     path = Path(path)
+    prior = {}
+    try:
+        prior = json.loads(path.read_text()).get("scopes") or []
+    except (OSError, ValueError, AttributeError):
+        pass
+    try:
+        data = json.loads(creds.to_json())
+        if prior:  # a refresh must not rewrite the recorded (granted) scopes
+            data["scopes"] = prior
+        text = json.dumps(data)
+    except ValueError:
+        text = creds.to_json()
     tmp = path.with_name(path.name + ".tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
-        f.write(creds.to_json())
+        f.write(text)
     os.replace(tmp, path)
 
 
-def get_service(cfg):
+def granted_scopes(cfg) -> set[str]:
+    """Scopes recorded in the token file (no network). Empty set if unreadable."""
+    try:
+        data = json.loads(token_path(cfg).read_text())
+    except (OSError, ValueError):
+        return set()
+    sc = data.get("scopes") if isinstance(data, dict) else None
+    if isinstance(sc, str):
+        sc = sc.split()
+    return {str(x) for x in (sc or [])}
+
+
+def has_scope(cfg, scope: str) -> bool:
+    have = granted_scopes(cfg)
+    if scope in have:
+        return True
+    # the broad youtube scope also covers comment/force-ssl calls
+    return scope == SCOPE_FORCE_SSL and SCOPE_BROAD in have
+
+
+def get_service(cfg, api: str = "youtube", version: str = "v3"):
     from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
     from googleapiclient.discovery import build
@@ -37,7 +74,9 @@ def get_service(cfg):
     path = token_path(cfg)
     if not path.exists():
         raise RuntimeError(f"{path} not found; run scripts/auth_youtube.py first")
-    creds = Credentials.from_authorized_user_file(str(path), SCOPES)
+    # No scopes argument: passing one would make refresh request scopes the token never
+    # granted (invalid_scope), which breaks upload-only tokens.
+    creds = Credentials.from_authorized_user_file(str(path))
     if not creds.valid:
         if creds.refresh_token:
             try:
@@ -47,7 +86,7 @@ def get_service(cfg):
             _save(creds, path)
         else:
             raise RuntimeError("YouTube token has no refresh token; re-run scripts/auth_youtube.py")
-    return build("youtube", "v3", credentials=creds, cache_discovery=False)
+    return build(api, version, credentials=creds, cache_discovery=False)
 
 
 def upload(cfg, video, title: str, description: str, tags: list[str] | None = None) -> str:
@@ -88,3 +127,74 @@ def upload(cfg, video, title: str, description: str, tags: list[str] | None = No
     if not vid:
         raise RuntimeError(f"YouTube upload returned no id: {response}")
     return vid
+
+
+def post_comment(cfg, video_id: str, text: str) -> tuple[str | None, str]:
+    """Post a top-level comment. Never raises. Returns (comment_id, reason); id is None on skip/failure."""
+    try:
+        text = _clean(text).strip()
+        if not text:
+            return None, "empty comment"
+        if not has_scope(cfg, SCOPE_FORCE_SSL):
+            log.info("First comment skipped: token lacks the youtube.force-ssl scope (re-run auth_youtube.py)")
+            return None, "token lacks youtube.force-ssl scope; re-run auth_youtube.py"
+        from googleapiclient.errors import HttpError
+
+        yt = get_service(cfg)
+        body = {"snippet": {"videoId": video_id, "topLevelComment": {"snippet": {"textOriginal": text[:10000]}}}}
+        for attempt in (0, 1):
+            try:
+                resp = yt.commentThreads().insert(part="snippet", body=body).execute()
+                return resp.get("id"), "ok"
+            except HttpError as e:
+                status = getattr(e.resp, "status", 0)
+                retryable = status >= 500 or "processing" in str(e).lower()
+                if attempt == 0 and retryable:
+                    log.warning("Comment insert failed (HTTP %s), retrying once", status)
+                    time.sleep(5)
+                    continue
+                return None, f"HTTP {status}"
+    except Exception as e:  # noqa: BLE001
+        log.warning("Comment failed: %s", type(e).__name__)
+        return None, f"{type(e).__name__}: {str(e)[:100]}"
+    return None, "unknown"
+
+
+def _batches(ids, n):
+    ids = [i for i in dict.fromkeys(ids) if i]
+    for i in range(0, len(ids), n):
+        yield ids[i:i + n]
+
+
+def video_stats(cfg, ids) -> dict[str, dict]:
+    """videos.list statistics -> {id: {views, likes, comments}}. Raises on API failure."""
+    yt = get_service(cfg)
+    out: dict[str, dict] = {}
+    for batch in _batches(ids, 50):
+        try:  # maxResults is unsupported together with id
+            resp = yt.videos().list(part="statistics", id=",".join(batch)).execute()
+        except Exception as e:  # noqa: BLE001
+            log.warning("videos.list batch failed: %s", type(e).__name__)
+            continue
+        for it in resp.get("items", []):
+            st = it.get("statistics", {})
+            out[it["id"]] = {"views": int(st.get("viewCount", 0)), "likes": int(st.get("likeCount", 0)),
+                             "comments": int(st.get("commentCount", 0))}
+    return out
+
+
+def analytics_stats(cfg, ids, start: str) -> dict[str, dict]:
+    """YouTube Analytics v2 per-video retention -> {id: {views, avg_view_sec, avg_view_pct}}."""
+    yta = get_service(cfg, "youtubeAnalytics", "v2")
+    out: dict[str, dict] = {}
+    end = time.strftime("%Y-%m-%d")
+    for batch in _batches(ids, 50):
+        resp = yta.reports().query(
+            ids="channel==MINE", startDate=start, endDate=end, dimensions="video",
+            filters="video==" + ",".join(batch),
+            metrics="views,averageViewDuration,averageViewPercentage",
+            sort="-views", maxResults=200,  # video dimension requires sort; batches stay <= 200 ids
+        ).execute()
+        for row in resp.get("rows", []) or []:
+            out[str(row[0])] = {"views": int(row[1]), "avg_view_sec": float(row[2]), "avg_view_pct": float(row[3])}
+    return out

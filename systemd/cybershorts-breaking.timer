@@ -1,0 +1,10 @@
+[Unit]
+Description=Check for breaking security news every 30 minutes
+
+[Timer]
+OnCalendar=*:00/30
+RandomizedDelaySec=120
+Unit=cybershorts-breaking.service
+
+[Install]
+WantedBy=timers.target

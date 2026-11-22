@@ -1,0 +1,16 @@
+[Unit]
+Description=cybershorts: check for breaking security news and create at most one draft
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+TimeoutStartSec=30min
+Nice=10
+User=cybershorts
+Group=cybershorts
+WorkingDirectory=/opt/cybershorts
+ExecStart=/opt/cybershorts/.venv/bin/python scripts/breaking.py
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full

@@ -30,6 +30,15 @@ class FactCheckTests(unittest.TestCase):
         self.assertEqual(c.call_args.kwargs["temperature"], 0)
         self.assertIn("Full article text", c.call_args.args[1][0]["content"])
 
+    def test_checks_all_hooks_except_active(self):
+        data = dict(self.data, hooks=["Zero hook.", "One hook.", "Two hook."], hook_index=1)
+        with mock.patch.object(self.w, "chat", return_value='{"issues": []}') as c:
+            self.w.fact_check(self.cfg, self.story, data)
+        prompt = c.call_args.args[1][0]["content"]
+        self.assertIn("Zero hook.", prompt)
+        self.assertIn("Two hook.", prompt)
+        self.assertNotIn("One hook.", prompt)
+
     def test_issues_capped_and_truncated(self):
         raw = '{"issues": ["' + '", "'.join(["x" * 300] + [f"i{n}" for n in range(8)]) + '"]}'
         with mock.patch.object(self.w, "chat", return_value="Here: " + raw):
