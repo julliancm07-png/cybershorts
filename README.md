@@ -2,7 +2,30 @@
 
 Automated IT and cybersecurity news Shorts. Each run picks a recent story from RSS feeds, writes a short script, narrates it with Piper, adds word-timed captions and b-roll, and sends the finished 1080x1920 video to Telegram for approval. Approved videos go to YouTube Shorts and to your TikTok inbox as drafts.
 
-Flow: RSS -> OpenRouter script -> Piper TTS -> faster-whisper captions -> Pexels b-roll -> FFmpeg render -> Telegram approve -> YouTube + TikTok.
+## Architecture
+
+```mermaid
+flowchart TD
+    subgraph CT["Proxmox LXC (Debian 13) · systemd timers"]
+        A["1. Pick a story<br/>dedupe by CVE, full article, breaking check"] --> B["2. Write + fact-check<br/>script in beats, 3 hooks, CVE card confirmed in code"]
+        B --> C["3. Voice<br/>ElevenLabs v3, Kokoro/Piper fallback"]
+        C --> D["4. Captions + render<br/>faster-whisper timing, ASS, FFmpeg"]
+        D --> E["5. Human review<br/>Telegram approve / swap hook / reject"]
+        E --> F["6. Publish<br/>upload + first comment"]
+        F --> G["7. Learn (weekly)<br/>retention -> script guidance"]
+        G -.-> B
+    end
+    S[(RSS, CISA KEV, NVD)] --- A
+    O[OpenRouter] --- B
+    V[ElevenLabs] --- C
+    P[Pixabay b-roll] --- D
+    T{{Telegram on phone}} --- E
+    Y[YouTube + TikTok] --- F
+    YA[YouTube Analytics] --- G
+    style E stroke-width:3px
+```
+
+Every job reports failures to Telegram, and a weekly job makes an encrypted backup (see "Alerts and backups").
 
 Runs on a small Debian server with Python 3.11+, systemd timers and no paid scheduler.
 
