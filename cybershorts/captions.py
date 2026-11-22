@@ -375,16 +375,20 @@ def _badge_events(text: str, color: str, w: int, h: int, hook_title: str, hook_s
 
 
 def _card_events(card: dict, accent: str, w: int, h: int, start: float, end: float,
-                 title_bottom: float) -> list[str]:
+                 title_bottom: float, *, scale: float | None = None,
+                 center: tuple[float, float] | None = None) -> list[str]:
     rows = _card_rows(card)
     if not rows or end - start < 1.0:
         return []
-    sc = w / 1080.0
+    sc = scale or w / 1080.0
     pad, box_w = int(34 * sc), int(920 * sc)
     heights = {"id": 86, "cvss": 84, "affects": 62, "exploited": 62, "patch": 62}
     box_h = 2 * pad + int(sum(heights[k] for k, _t, _c in rows) * sc)
-    cx = w // 2
-    cy = max(int(h * 0.21), int(title_bottom + 24 * sc + box_h / 2))
+    if center is not None:
+        cx, cy = int(center[0]), int(center[1])
+    else:
+        cx = w // 2
+        cy = max(int(h * 0.21), int(title_bottom + 24 * sc + box_h / 2))
     top = cy - box_h // 2
     t0, t1 = format_ass_time(start), format_ass_time(end)
     mv = lambda x, y: f"\\move({x},{y + int(60 * sc)},{x},{y},0,260)"  # noqa: E731
@@ -424,6 +428,34 @@ def _card_events(card: dict, accent: str, w: int, h: int, start: float, end: flo
     return out
 
 
+def overlay_times(cfg: Config, duration: float, *, title: str | None = None,
+                  beats: list[float] | None = None, badge: str | None = None,
+                  card: dict | None = None) -> dict:
+    """Pure timing of the Shorts overlays, shared by build_ass and the sound mixer.
+
+    Returns {hook_end, badge_end|None, card:(start, end)|None, end_card:float|None}.
+    """
+    hook_s = float(cfg.get("video.hook_seconds", 1.6) or 0)
+    end_card_on = bool(cfg.get("branding.end_card", True))
+    dur = max(duration, 0.1)
+    show_end_card = bool(end_card_on and beats and len(beats) >= 2 and 0 < beats[-1] < dur
+                         and dur - beats[-1] <= 4.5)
+    hook_end = min(hook_s, dur) if (title and hook_s > 0) else 0.0
+    badge_end = min(max(hook_s, 1.6), dur) if (badge and str(badge).strip()) else None
+    card_t = None
+    if card and _card_rows(card):
+        ev_limit = beats[-1] if show_end_card else dur  # type: ignore[index]
+        bs = list(beats or [])
+        c_start = float(bs[1]) if len(bs) >= 2 else 2.0
+        c_end = min(c_start + float(cfg.get("data_card.seconds", 4.5) or 4.5), ev_limit)
+        if len(bs) >= 3:
+            c_end = min(c_end, float(bs[2]))
+        if c_end - c_start >= 1.0:
+            card_t = (c_start, c_end)
+    return {"hook_end": hook_end, "badge_end": badge_end, "card": card_t,
+            "end_card": float(beats[-1]) if show_end_card else None}  # type: ignore[index]
+
+
 def build_ass(chunks: list[Chunk], cfg: Config, title: str, handle: str, duration: float, *,
               words: list[Word] | None = None, keywords: list[str] | None = None,
               beats: list[float] | None = None, badge: str | None = None,
@@ -437,7 +469,6 @@ def build_ass(chunks: list[Chunk], cfg: Config, title: str, handle: str, duratio
     accent = ass_color(cfg.get("branding.accent", "#3DDCFF"), "#3DDCFF")
     kw_color = ass_color(cfg.get("branding.keyword_color", "#FFD60A"), "#FFD60A")
     bar_on = bool(cfg.get("branding.progress_bar", True))
-    end_card_on = bool(cfg.get("branding.end_card", True))
     card_rows = _card_rows(card) if card else []
     card_style = (f"Style: Card,{font},46,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,5,0,0,0,1\n"
                   if (badge or card_rows) else "")
@@ -461,9 +492,9 @@ def build_ass(chunks: list[Chunk], cfg: Config, title: str, handle: str, duratio
     end_all = format_ass_time(dur)
     lines = [header]
 
-    show_end_card = bool(end_card_on and beats and len(beats) >= 2 and 0 < beats[-1] < dur
-                         and dur - beats[-1] <= 4.5)
-    title_start = min(hook_s, dur) if (title and hook_s > 0) else 0.0
+    ot = overlay_times(cfg, duration, title=title, beats=beats, badge=badge, card=card)
+    show_end_card = ot["end_card"] is not None
+    title_start = ot["hook_end"]
     title_end = beats[-1] if show_end_card else dur  # type: ignore[index]
     if title and hook_s > 0:
         he = format_ass_time(title_start)
@@ -500,17 +531,12 @@ def build_ass(chunks: list[Chunk], cfg: Config, title: str, handle: str, duratio
             + (f"\\N{{\\c&H00FFFFFF&\\fscx120\\fscy120}}{_escape(handle)}" if handle else "")
             + "\n"
         )
-    ev_limit = beats[-1] if show_end_card else dur  # type: ignore[index]
-    if badge and str(badge).strip():
-        b_end = min(max(hook_s, 1.6), dur)
+    if ot["badge_end"] is not None:
+        b_end = ot["badge_end"]
         lines.extend(_badge_events(str(badge), badge_color or cfg.get("breaking.badge_color", "#FF3B30"),
                                    w, h, title or "", int(size * 1.15), b_end))
-    if card_rows:
-        bs = list(beats or [])
-        c_start = float(bs[1]) if len(bs) >= 2 else 2.0
-        c_end = min(c_start + float(cfg.get("data_card.seconds", 4.5) or 4.5), ev_limit)
-        if len(bs) >= 3:
-            c_end = min(c_end, float(bs[2]))
+    if card_rows and ot["card"] is not None:
+        c_start, c_end = ot["card"]
         per_line = max(4, int((w - 140) / (int(size * 0.62) * 0.74)))
         t_lines = max(1, -(-len(title or "") // per_line)) if title else 0
         title_bottom = 260 + t_lines * int(size * 0.62) * 1.2 if t_lines else 0

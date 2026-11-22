@@ -192,13 +192,15 @@ def _run(cfg, telegram: bool) -> dict | None:
             d = _describe(r)
             d.update(id=r["youtube_id"], views=st["views"], likes=st["likes"], comments=st["comments"],
                      pct=a.get("avg_view_pct"))
+            d["recap"] = (r.get("kind") or "regular") == "recap"
             vids.append(d)
     finally:
         conn.close()
 
     learned = False
-    if len(vids) >= int(cfg.get("analytics.min_videos", 6)):
-        ranked = sorted(vids, key=lambda v: (v["views"], v.get("pct") or 0), reverse=True)
+    shorts = [v for v in vids if not v.get("recap")]  # long-form recaps must not skew Shorts learnings
+    if len(shorts) >= int(cfg.get("analytics.min_videos", 6)):
+        ranked = sorted(shorts, key=lambda v: (v["views"], v.get("pct") or 0), reverse=True)
         n = max(1, min(int(cfg.get("analytics.top_n", 5)), len(ranked) // 2))
         try:
             text = writer.chat(cfg, build_prompt(ranked[:n], ranked[-n:]), temperature=0.3,
@@ -210,7 +212,7 @@ def _run(cfg, telegram: bool) -> dict | None:
         except Exception as e:  # noqa: BLE001
             log.warning("Learnings generation failed: %s", type(e).__name__)
     else:
-        log.info("Analytics: %d videos, need %s for learnings", len(vids), cfg.get("analytics.min_videos", 6))
+        log.info("Analytics: %d videos, need %s for learnings", len(shorts), cfg.get("analytics.min_videos", 6))
 
     if telegram and cfg.get("analytics.report", True):
         _send(cfg, build_report(cfg, vids, read_learnings(cfg)))

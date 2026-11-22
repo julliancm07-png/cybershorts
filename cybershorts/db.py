@@ -280,3 +280,41 @@ def upsert_video_stats(conn: sqlite3.Connection, youtube_id: str, *, draft_id: i
 
 def all_video_stats(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return conn.execute("SELECT * FROM video_stats ORDER BY youtube_id").fetchall()
+
+
+# --- weekly recap ------------------------------------------------------------
+
+def recap_candidates(conn: sqlite3.Connection, since_iso: str) -> list[sqlite3.Row]:
+    """Published Shorts (not recaps) with a YouTube ID, last updated at or after since_iso, newest first.
+    Each row also carries the source story's summary and title (None when the story row is missing)."""
+    return conn.execute(
+        "SELECT d.*, s.summary AS story_summary, s.title AS story_title"
+        " FROM drafts d LEFT JOIN stories s ON s.url = d.story_url"
+        " WHERE COALESCE(d.kind,'regular') != 'recap' AND d.youtube_id IS NOT NULL"
+        " AND d.status IN ('published','partial') AND d.updated_at >= ?"
+        " ORDER BY d.updated_at DESC",
+        (since_iso,),
+    ).fetchall()
+
+
+def find_recap(conn: sqlite3.Connection, week: str) -> sqlite3.Row | None:
+    """Newest recap draft for an ISO week key such as '2026-W47' (story_url 'recap:<week>')."""
+    return conn.execute(
+        "SELECT * FROM drafts WHERE kind='recap' AND story_url='recap:' || ?"
+        " ORDER BY id DESC LIMIT 1",
+        (week,),
+    ).fetchone()
+
+
+def views_for(conn: sqlite3.Connection, ids: Iterable[str]) -> dict[str, int]:
+    """Stored view counts keyed by YouTube ID. IDs with no video_stats row are omitted."""
+    ids = list({str(i) for i in ids if i})
+    out: dict[str, int] = {}
+    for start in range(0, len(ids), 500):  # stay well under SQLite's bound-parameter limit
+        chunk = ids[start:start + 500]
+        marks = ",".join("?" * len(chunk))
+        for r in conn.execute(
+            f"SELECT youtube_id, views FROM video_stats WHERE youtube_id IN ({marks})", chunk
+        ).fetchall():
+            out[r["youtube_id"]] = int(r["views"] or 0)
+    return out

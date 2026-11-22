@@ -33,9 +33,13 @@ def tags_ok(tags: str, require: list | None, exclude: list | None) -> bool:
     return True
 
 
-def _pixabay_pick(hits: list, require: list | None = None, exclude: list | None = None) -> list[str]:
+def _pixabay_pick(hits: list, require: list | None = None, exclude: list | None = None,
+                  orientation: str = "portrait") -> list[str]:
     """Pick one download URL per hit. Pixabay clips are mostly landscape; the renderer
-    crops to 9:16, so prefer the tallest rendition 720-1920 px high (width <= 1920, so no 4K when smaller exists)."""
+    crops to 9:16, so prefer the tallest rendition 720-1920 px high (width <= 1920, so no 4K when smaller exists).
+    orientation="landscape" instead prefers a 1280-1920 px wide rendition, favouring true landscape frames."""
+    if orientation == "landscape":
+        return _pixabay_pick_landscape(hits, require, exclude)
     cands = []
     for hit in hits:
         if not tags_ok(hit.get("tags", ""), require, exclude):
@@ -60,25 +64,59 @@ def _pixabay_pick(hits: list, require: list | None = None, exclude: list | None 
     return cands
 
 
-def _pixabay_search(key: str, query: str, require=None, exclude=None, skip=None) -> str | None:
+def _pixabay_pick_landscape(hits: list, require: list | None, exclude: list | None) -> list[str]:
+    """Landscape: renditions 1280-1920 px wide; landscape frames score +400 so a 1920x1080 beats a
+    portrait 1080x1920 of the same width. Fallback: the smallest rendition at least 1280 px wide."""
+    cands = []
+    for hit in hits:
+        if not tags_ok(hit.get("tags", ""), require, exclude):
+            continue
+        best = None
+        fallback = None
+        for size in ("large", "medium", "small", "tiny"):
+            v = (hit.get("videos") or {}).get(size) or {}
+            url, h, w = v.get("url"), v.get("height") or 0, v.get("width") or 0
+            if not url:
+                continue
+            if 1280 <= w <= 1920:
+                score = w + (400 if w > h else 0)
+                if best is None or score > best[0]:
+                    best = (score, url)
+            elif w >= 1280 and (fallback is None or w < fallback[0]):
+                fallback = (w, url)  # e.g. 4K only: smallest oversized rendition
+        if best is None and fallback:
+            best = (0, fallback[1])
+        if best:
+            cands.append(best[1])
+    return cands
+
+
+def _pixabay_search(key: str, query: str, require=None, exclude=None, skip=None,
+                    orientation: str = "portrait") -> str | None:
     r = requests.get(
         PIXABAY_URL,
         params={"key": key, "q": query[:100], "safesearch": "true", "per_page": 20, "order": "popular"},
         timeout=20,
     )
     r.raise_for_status()
-    cands = [c for c in _pixabay_pick(r.json().get("hits", []), require, exclude) if c not in (skip or ())]
+    cands = [c for c in _pixabay_pick(r.json().get("hits", []), require, exclude, orientation)
+             if c not in (skip or ())]
     return random.choice(cands[:8]) if cands else None
 
 
 # ---------- Pexels (kept for anyone who already has a key) ----------
-def _pexels_pick(videos: list) -> list[str]:
+def _pexels_pick(videos: list, orientation: str = "portrait") -> list[str]:
     cands = []
     for v in videos:
         best = None
         for f in v.get("video_files", []) or []:
             h, w = f.get("height") or 0, f.get("width") or 0
-            if h >= 1280 and h > w and f.get("link"):
+            if orientation == "landscape":
+                if w >= 1280 and w > h and f.get("link"):
+                    score = abs(w - 1920)  # closest to 1080p landscape
+                    if best is None or score < best[0]:
+                        best = (score, f["link"])
+            elif h >= 1280 and h > w and f.get("link"):
                 score = abs(h - 1920) + (1000 if w > 1080 and h > 2000 else 0)
                 if best is None or score < best[0]:
                     best = (score, f["link"])
@@ -88,15 +126,16 @@ def _pexels_pick(videos: list) -> list[str]:
     return [link for _, link in cands]
 
 
-def _pexels_search(key: str, query: str, require=None, exclude=None, skip=None) -> str | None:
+def _pexels_search(key: str, query: str, require=None, exclude=None, skip=None,
+                   orientation: str = "portrait") -> str | None:
     r = requests.get(
         PEXELS_URL,
-        params={"query": query, "orientation": "portrait", "per_page": 15},
+        params={"query": query, "orientation": orientation, "per_page": 15},
         headers={"Authorization": key},
         timeout=20,
     )
     r.raise_for_status()
-    cands = [c for c in _pexels_pick(r.json().get("videos", [])) if c not in (skip or ())]
+    cands = [c for c in _pexels_pick(r.json().get("videos", []), orientation) if c not in (skip or ())]
     return random.choice(cands[:8]) if cands else None
 
 
@@ -133,7 +172,8 @@ def _local_clips(cfg) -> list[Path]:
     return sorted(p for p in d.iterdir() if p.is_file() and p.suffix.lower() in VIDEO_EXTS)
 
 
-def _fetch_remote(cfg, provider: str, queries: list[str], out_path: Path, used: set) -> Path | None:
+def _fetch_remote(cfg, provider: str, queries: list[str], out_path: Path, used: set,
+                  *, orientation: str = "portrait") -> Path | None:
     """Download one clip for the first query that yields a URL not in `used`. None if nothing found."""
     searchers = {
         "pixabay": (getattr(cfg, "pixabay_api_key", "") or "", _pixabay_search, "PIXABAY_API_KEY"),
@@ -149,7 +189,7 @@ def _fetch_remote(cfg, provider: str, queries: list[str], out_path: Path, used: 
             continue
         try:
             link = search(key, q, cfg.get("broll.require_tags") or None,
-                          cfg.get("broll.exclude_tags") or None, skip=used)
+                          cfg.get("broll.exclude_tags") or None, skip=used, orientation=orientation)
             if not link:
                 log.info("No suitable %s video for %r", provider, q)
                 continue
@@ -161,7 +201,8 @@ def _fetch_remote(cfg, provider: str, queries: list[str], out_path: Path, used: 
     return None
 
 
-def fetch_broll_set(cfg, n: int, query: str, out_prefix) -> list[Path]:
+def fetch_broll_set(cfg, n: int, query: str, out_prefix, *, orientation: str = "portrait",
+                    max_clips: int | None = None) -> list[Path]:
     """Up to `n` distinct clips (never the same download URL twice), files `{out_prefix}_{i}.mp4`.
 
     Shortfalls are filled with distinct files from the local folder (returned in place, never
@@ -169,8 +210,11 @@ def fetch_broll_set(cfg, n: int, query: str, out_prefix) -> list[Path]:
     provider = str(cfg.get("broll.provider", "pixabay")).lower()
     if provider == "none":
         return []
-    raw_max = cfg.get("broll.max_clips", 5)
-    max_clips = 5 if raw_max is None else int(raw_max)
+    if max_clips is None:
+        raw_max = cfg.get("broll.max_clips", 5)
+        max_clips = 5 if raw_max is None else int(raw_max)
+    else:
+        max_clips = int(max_clips)  # explicit override of broll.max_clips
     n = min(int(n), max_clips if max_clips > 0 else 1)
     if n <= 0:
         return []
@@ -193,7 +237,8 @@ def fetch_broll_set(cfg, n: int, query: str, out_prefix) -> list[Path]:
         else:
             n_remote = n
         for i in range(n_remote):
-            got = _fetch_remote(cfg, provider, [queries[i], FALLBACK_QUERY], Path(f"{prefix}_{i}.mp4"), used)
+            got = _fetch_remote(cfg, provider, [queries[i], FALLBACK_QUERY], Path(f"{prefix}_{i}.mp4"), used,
+                                orientation=orientation)
             if got:
                 clips.append(got)
     if len(clips) < n:

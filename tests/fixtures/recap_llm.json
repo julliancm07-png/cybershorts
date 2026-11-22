@@ -1,0 +1,32 @@
+{
+ "title": "This Week in Cyber: Three Big Stories #Shorts",
+ "description": "A fast look at the three biggest security stories. Visit https://example.com/x for more.",
+ "intro": "[curious] Three stories shaped the week, so let's get into them. Here is what you need to know.",
+ "segments": [
+  {
+   "story_index": 1,
+   "chapter": "Story 1 chapter",
+   "narration": "[excited] Attackers are moving fast and the fix is simple. Patch the affected systems today and check your logs for odd logins. Attackers are moving\n\nAttackers are moving fast and the fix is simple. Patch the affected systems today and check your logs for odd logins. Attackers are moving See https://example.com/a now.\n\n[sighs] Attackers are moving fast and the fix is simple. Patch"
+  },
+  {
+   "story_index": 2,
+   "chapter": "Story 2 chapter",
+   "narration": "[excited] Attackers are moving fast and the fix is simple. Patch the affected systems today and check your logs for odd logins. Attackers are moving\n\nAttackers are moving fast and the fix is simple. Patch the affected systems today and check your logs for odd logins. Attackers are moving See https://example.com/a now.\n\n[sighs] Attackers are moving fast and the fix is simple. Patch"
+  },
+  {
+   "story_index": 3,
+   "chapter": "Story 3 chapter",
+   "narration": "[excited] Attackers are moving fast and the fix is simple. Patch the affected systems today and check your logs for odd logins. Attackers are moving\n\nAttackers are moving fast and the fix is simple. Patch the affected systems today and check your logs for odd logins. Attackers are moving See https://example.com/a now.\n\n[sighs] Attackers are moving fast and the fix is simple. Patch"
+  }
+ ],
+ "outro": "That's the week. Stay safe out there.",
+ "tags": [
+  "#cybersecurity",
+  "infosec",
+  "weekly recap",
+  "cyber",
+  "cybersecurity"
+ ],
+ "thumbnail_text": "huge breach! this week",
+ "first_comment": "Which story worried you most?"
+}

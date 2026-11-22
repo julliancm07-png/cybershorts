@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import random
+import re
 import subprocess
 from pathlib import Path
 
@@ -30,11 +31,24 @@ def list_tracks(cfg) -> list[Path]:
     return sorted(p for p in d.iterdir() if p.is_file() and p.suffix.lower() in AUDIO_EXTS)
 
 
-def pick_track(cfg) -> Path | None:
-    """Random track, never the same one twice in a row."""
-    tracks = list_tracks(cfg)
-    if not tracks:
-        return None
+KIT_BED_EXTS = {".mp3", ".wav", ".m4a", ".ogg", ".flac"}
+_BED_RE = re.compile(r"^bed\d*\.(mp3|wav|m4a|ogg|flac)$", re.I)
+
+
+def kit_beds(cfg) -> list[Path]:
+    """Sound-kit beds: files named bed.<ext> or bed<N>.<ext> in the sound kit folder, sorted.
+
+    Variants such as bed1.v2.mp3 or partial files like bed2.tmp.mp3 are not beds.
+    """
+    d = cfg.path() / cfg.get("sound.folder", "brand/sound")
+    if not d.is_dir():
+        return []
+    return sorted(p for p in d.iterdir()
+                  if p.is_file() and _BED_RE.match(p.name))
+
+
+def _pick_from(cfg, tracks: list[Path]) -> Path:
+    """Random choice, never the same track twice in a row (remembered in music_last.txt)."""
     last_file = Path(cfg.path("music_last.txt"))
     last = last_file.read_text().strip() if last_file.exists() else ""
     pool = [t for t in tracks if t.name != last] or tracks
@@ -44,6 +58,22 @@ def pick_track(cfg) -> Path | None:
     except OSError:
         pass
     return choice
+
+
+def pick_track(cfg) -> Path | None:
+    """Random track, never the same one twice in a row.
+
+    With the sound kit on (sound.enabled, music.prefer_kit) and bed* files present, the choice
+    is among the kit beds; otherwise the music folder is used as before.
+    """
+    if cfg.get("sound.enabled", True) and cfg.get("music.prefer_kit", True):
+        beds = kit_beds(cfg)
+        if beds:
+            return _pick_from(cfg, beds)
+    tracks = list_tracks(cfg)
+    if not tracks:
+        return None
+    return _pick_from(cfg, tracks)
 
 
 def _duration(path: Path) -> float:

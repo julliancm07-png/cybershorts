@@ -1,0 +1,18 @@
+[Unit]
+Description=cybershorts: create the weekly long-form recap video and send it for review
+After=network-online.target
+Wants=network-online.target
+OnFailure=cybershorts-alert@fail:%N.service
+OnSuccess=cybershorts-alert@ok:%N.service
+
+[Service]
+Type=oneshot
+TimeoutStartSec=90min
+Nice=10
+User=cybershorts
+Group=cybershorts
+WorkingDirectory=/opt/cybershorts
+ExecStart=/opt/cybershorts/.venv/bin/python scripts/recap.py
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full

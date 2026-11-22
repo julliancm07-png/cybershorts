@@ -441,7 +441,8 @@ def swap_hook(cfg: Config, draft_id: int, n: int) -> Path | str:
     wav = work / f"draft_{draft_id}.wav"
     tmp = work / f"draft_{draft_id}_swap.wav"
     mp4 = cfg.path("videos") / f"draft_{draft_id}.mp4"
-    originals = [wav, spans_path(wav), mp4, music_version(cfg, draft_id)]
+    from .sound import tiktok_version
+    originals = [wav, spans_path(wav), mp4, music_version(cfg, draft_id), tiktok_version(cfg, draft_id)]
     backups: list[tuple[Path, Path]] = []
     try:
         for src in originals:
@@ -637,13 +638,32 @@ def render_draft(cfg: Config, draft_id: int, fail_on_error: bool = True) -> Path
                            cfg.get("channel.handle", ""), duration + render.PAD_SECONDS, ass,
                            words=words, keywords=data.get("keywords"), beats=beats, **extra)
         out = cfg.path("videos") / f"draft_{draft_id}.mp4"
+        from . import sound
+        audio = None
         try:
-            render.render(cfg, wav, ass, clips or None, out, beats=beats)
-        except RuntimeError as e:
-            if not clips:
-                raise
-            log.warning("Render with b-roll failed (%s); retrying without b-roll", e)
-            render.render(cfg, wav, ass, None, out, beats=beats, watermark=False)
+            audio = sound.short_sfx(cfg, draft_id, wav, beats=beats, duration=duration + render.PAD_SECONDS,
+                                    title=data.get("on_screen_title", ""), overlay=extra)
+        except Exception as e:  # noqa: BLE001 - SFX are optional
+            log.warning("SFX skipped: %s", e)
+        sfx_made = audio is not None
+        try:
+            try:
+                render.render(cfg, audio or wav, ass, clips or None, out, beats=beats)
+            except RuntimeError as e:
+                if not clips:
+                    raise
+                log.warning("Render with b-roll failed (%s); retrying without b-roll", e)
+                render.render(cfg, audio or wav, ass, None, out, beats=beats, watermark=False)
+            tv = sound.tiktok_version(cfg, draft_id)
+            tv.unlink(missing_ok=True)  # never leave a stale version from an earlier render
+            if sfx_made and not cfg.get("sound.sfx_on_tiktok", True):
+                try:
+                    sound.make_clean_tiktok(cfg, out, wav, tv)
+                except Exception as e:  # noqa: BLE001
+                    log.warning("Clean TikTok version failed: %s", e)
+        finally:
+            if audio is not None:
+                Path(audio).unlink(missing_ok=True)
         _cleanup_broll(cfg, draft_id, clips)
 
         from . import music
@@ -654,6 +674,10 @@ def render_draft(cfg: Config, draft_id: int, fail_on_error: bool = True) -> Path
         if with_music:
             note = "\n" + html.escape(f"🎵 {track}" + ("" if cfg.get("music.on_tiktok", False)
                                                        else " (YouTube only; add a TikTok sound in the app)"), quote=False)
+            if len(caption) + len(note) <= 1024:
+                caption += note
+        if sfx_made:
+            note = "\n🔊 SFX" + ("" if cfg.get("sound.sfx_on_tiktok", True) else " (YouTube only; TikTok version is clean)")
             if len(caption) + len(note) <= 1024:
                 caption += note
         kb = _review_keyboard(cfg, draft_id, data)
@@ -706,6 +730,10 @@ def publish(cfg: Config, draft_id: int, targets: set[str]) -> str:
         row = db.get_draft(conn, draft_id)
         if row is None:
             raise ValueError(f"Draft {draft_id} not found")
+        if (row["kind"] if "kind" in row.keys() else None) == "recap":
+            from . import recap_publish
+
+            return recap_publish.publish(cfg, draft_id)
         if row["status"] == "published":
             return f"Draft {draft_id} is already published."
         if row["status"] == "publishing":
@@ -720,7 +748,15 @@ def publish(cfg: Config, draft_id: int, targets: set[str]) -> str:
         from . import music
         mv = music.music_version(cfg, draft_id)
         video_yt = mv if mv.exists() else video
-        video_tt = mv if (mv.exists() and cfg.get("music.on_tiktok", False)) else video
+        from . import sound
+        tv = sound.tiktok_version(cfg, draft_id)
+        if tv.exists():  # sound.sfx_on_tiktok is false: TikTok gets the clean version, never music over SFX
+            video_tt = tv
+            if mv.exists() and cfg.get("music.on_tiktok", False):
+                log.info("Draft %s: music isn't added to the clean TikTok version (sound.sfx_on_tiktok is off)",
+                         draft_id)
+        else:
+            video_tt = mv if (mv.exists() and cfg.get("music.on_tiktok", False)) else video
         db.update_draft(conn, draft_id, status="publishing")
     finally:
         conn.close()

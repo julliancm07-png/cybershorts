@@ -170,6 +170,63 @@ music:
   volume_db: -20         # music level before ducking; -24 quieter, -16 louder
   duck: true             # dip the music while the narrator speaks
   on_tiktok: false       # false: TikTok gets the clean version so you can add a TikTok sound in the app
+  prefer_kit: true       # use the generated sound kit beds (sound.kit bed*) when present; false = always use your folder
+
+# Sound kit (cybershorts/soundkit.py, scripts/make_sound_kit.py): ElevenLabs-generated effects and music.
+# Generate with: python scripts/make_sound_kit.py --dry-run, then python scripts/make_sound_kit.py
+sound:
+  # Master switch. false = videos render exactly as before, with no effects or kit music.
+  enabled: true
+  # Kit files, relative to data/ (not in git; included in the weekly backup).
+  folder: brand/sound
+  # true: TikTok gets the effects too; false = TikTok gets the voice-only mix.
+  sfx_on_tiktok: true
+  # ElevenLabs model for sound effects.
+  sfx_model: eleven_text_to_sound_v3
+  # ElevenLabs model for music.
+  music_model: music_v2
+  # Output format for generated files (192 kbps needs a Creator plan or higher).
+  output_format: mp3_44100_192
+  # How closely sound effects follow their prompt, 0 to 1.
+  prompt_influence: 0.5
+  # Seconds an effect starts before the beat it belongs to (the whoosh leads a cut).
+  whoosh_lead: 0.12
+  # Minimum seconds between two effects; the lower-priority one is dropped.
+  min_gap: 0.3
+  # Peak limiter ceiling for the effects mix (1.0 = full scale).
+  limit: 0.95
+  # Level of each effect in dB before mixing.
+  gain_db:
+    hook: -10
+    whoosh: -16
+    breaking: -12
+    card: -18
+    outro: -10
+  # Recap audio levels.
+  recap:
+    # Level of the signature theme under the recap intro, in dB.
+    theme_db: -12
+    # Level of the background bed under the recap narration, in dB.
+    bed_db: -22
+    # Dip the bed while the narrator speaks.
+    duck: true
+  # Estimated credit costs, used by the dry run and the balance check.
+  credits:
+    # ElevenLabs credits per second of generated sound effect.
+    sfx_per_second: 40
+    # Estimated credits per minute of generated music (ElevenLabs does not publish this).
+    music_per_minute: 900
+  # The sounds to generate: name, kind (sfx or music), prompt, seconds, and loop (true = seamless loop bed).
+  kit:
+    - {name: hook, kind: sfx, prompt: "short digital glitch impact, punchy opening hit for a cybersecurity news video", seconds: 1.0, loop: false}     # opening hit on Shorts
+    - {name: whoosh, kind: sfx, prompt: "fast airy transition whoosh, clean, digital", seconds: 0.6, loop: false}     # played before each beat change
+    - {name: breaking, kind: sfx, prompt: "urgent alert tone, two-note digital warning, breaking news", seconds: 1.5, loop: false}     # played on breaking videos
+    - {name: card, kind: sfx, prompt: "UI data blip, soft digital notification tick", seconds: 0.5, loop: false}     # played when the CVE data card appears
+    - {name: outro, kind: sfx, prompt: "signature sting, short dark synth resolve with a soft digital tail", seconds: 2.0, loop: false}     # played at the end card
+    - {name: theme, kind: music, prompt: "dark synth cyber signature intro, short, memorable, instrumental, no vocals", seconds: 8, loop: false}     # recap intro theme
+    - {name: bed1, kind: music, prompt: "instrumental, dark minimal techno bed to sit under narration, steady pulse, sparse, no vocals, no lead melody, no drops, low dynamics", seconds: 75, loop: true}     # background bed (looped)
+    - {name: bed2, kind: music, prompt: "instrumental, subtle synthwave underscore for tech news, warm pads, light arpeggio, steady, no vocals, no drops, low dynamics", seconds: 90, loop: true}     # background bed (looped)
+    - {name: bed3, kind: music, prompt: "instrumental, tense low-key electronic underscore, cybersecurity documentary feel, soft ticking percussion, no vocals, no drops, low dynamics", seconds: 60, loop: true}     # background bed (looped)
 
 # Delete rendered videos this many days after they are published or rejected.
 cleanup:
@@ -263,3 +320,68 @@ analytics:
   report: true
   # Model for the learnings pass; empty = llm.model.
   model: ""
+
+# Weekly long-form recap (cybershorts/recap.py): a landscape YouTube video of the week's top stories.
+recap:
+  # Master switch for the Sunday recap and /recap in Telegram.
+  enabled: true
+  # Most stories from the past week's published Shorts used in one recap.
+  stories: 5
+  # Below this many published Shorts in the lookback window no recap is made.
+  min_stories: 3
+  # Only Shorts published within this many days count toward a recap.
+  lookback_days: 7
+  # Time zone that defines the ISO week (YYYY-Www) and the Sunday schedule.
+  timezone: America/New_York
+  # OpenRouter model for the recap script; empty = llm.model.
+  model: ""
+  # Spoken script length range in words for the whole recap.
+  target_words: [600, 800]
+  # Re-fetch each story's article so the script has real specifics.
+  fetch_article: true
+  # How much of each article to send to the model.
+  max_article_chars: 2500
+  # Most audio tags kept in the recap voice script.
+  max_audio_tags: 5
+  # Prefix added to the recap YouTube title.
+  title_prefix: "This Week in Cyber: "
+  # Last line of the outro, used when the outro has no "subscribe" wording.
+  subscribe_line: "Subscribe for a new recap every Sunday."
+  # YouTube category ID for recaps (28 = Science & Technology).
+  category_id: "28"
+  # Video width in pixels (landscape).
+  width: 1920
+  # Video height in pixels.
+  height: 1080
+  # Output frame rate.
+  fps: 30
+  # x264 quality for the final encode (lower = larger file, better quality).
+  crf: 22
+  # x264 speed preset for the final encode.
+  preset: veryfast
+  # Seconds allowed for one FFmpeg render before it is stopped.
+  render_timeout: 3600
+  # Landscape b-roll clips fetched per story part.
+  broll_per_part: 2
+  # Most b-roll clips cut into one recap.
+  max_clips: 12
+  # Font size of the lower-third captions.
+  caption_font_size: 52
+  # Caption words shown together on screen.
+  words_per_chunk: 6
+  # Seconds the story title card stays on screen.
+  title_card_seconds: 3.5
+  # Seconds a /recap or timer run waits for the draft lock before giving up.
+  lock_timeout: 1800
+  # Low-resolution copy sent to Telegram for review.
+  preview:
+    # Preview width in pixels.
+    width: 854
+    # Preview height in pixels.
+    height: 480
+    # Largest preview file in MiB (Telegram bot upload limit is 50 MB).
+    max_mb: 45
+    # Preview audio bitrate in kbps.
+    audio_kbps: 64
+    # Upper limit on the preview video bitrate in kbps.
+    max_kbps: 1500

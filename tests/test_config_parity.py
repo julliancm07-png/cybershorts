@@ -51,6 +51,67 @@ V3_KEYS = [
     "analytics.model",
 ]
 
+# Every recap.* key (weekly long-form recap), as a dotted path. Each must exist in DEFAULTS and in the example YAML.
+RECAP_KEYS = [
+    "recap.enabled",
+    "recap.stories",
+    "recap.min_stories",
+    "recap.lookback_days",
+    "recap.timezone",
+    "recap.model",
+    "recap.target_words",
+    "recap.fetch_article",
+    "recap.max_article_chars",
+    "recap.max_audio_tags",
+    "recap.title_prefix",
+    "recap.subscribe_line",
+    "recap.category_id",
+    "recap.width",
+    "recap.height",
+    "recap.fps",
+    "recap.crf",
+    "recap.preset",
+    "recap.render_timeout",
+    "recap.broll_per_part",
+    "recap.max_clips",
+    "recap.caption_font_size",
+    "recap.words_per_chunk",
+    "recap.title_card_seconds",
+    "recap.lock_timeout",
+    "recap.preview.width",
+    "recap.preview.height",
+    "recap.preview.max_mb",
+    "recap.preview.audio_kbps",
+    "recap.preview.max_kbps",
+]
+
+
+# Every sound.* key (ElevenLabs sound kit) plus music.prefer_kit, as dotted paths. Each must exist in DEFAULTS and in the example YAML.
+SOUND_KEYS = [
+    "sound.enabled",
+    "sound.folder",
+    "sound.sfx_on_tiktok",
+    "sound.sfx_model",
+    "sound.music_model",
+    "sound.output_format",
+    "sound.prompt_influence",
+    "sound.whoosh_lead",
+    "sound.min_gap",
+    "sound.limit",
+    "sound.gain_db.hook",
+    "sound.gain_db.whoosh",
+    "sound.gain_db.breaking",
+    "sound.gain_db.card",
+    "sound.gain_db.outro",
+    "sound.recap.theme_db",
+    "sound.recap.bed_db",
+    "sound.recap.duck",
+    "sound.credits.sfx_per_second",
+    "sound.credits.music_per_minute",
+    "sound.kit",
+    "music.prefer_kit",
+]
+
 
 def _diff(a, b, path="") -> list[str]:
     """Return human-readable differences between two parsed structures (strict on types)."""
@@ -114,12 +175,26 @@ class ConfigParityTests(unittest.TestCase):
                 _get(config.DEFAULTS, dotted)
                 _get(example, dotted)
 
+    def test_recap_keys_exist_in_defaults_and_example(self):
+        example = self._example()
+        for dotted in RECAP_KEYS:
+            with self.subTest(key=dotted):
+                _get(config.DEFAULTS, dotted)
+                _get(example, dotted)
+
+    def test_sound_keys_exist_in_defaults_and_example(self):
+        example = self._example()
+        for dotted in SOUND_KEYS:
+            with self.subTest(key=dotted):
+                _get(config.DEFAULTS, dotted)
+                _get(example, dotted)
+
     def test_empty_config_yaml_loads_every_key(self):
         (Path(self._tmp.name) / "config.yaml").write_text("", encoding="utf-8")
         cfg = config.load()
         diffs = _diff(config.DEFAULTS, cfg.raw)
         self.assertEqual(diffs, [], "empty config.yaml did not yield DEFAULTS:\n" + "\n".join(diffs))
-        for dotted in V3_KEYS:
+        for dotted in V3_KEYS + SOUND_KEYS:
             with self.subTest(key=dotted):
                 _get(cfg.raw, dotted)
 

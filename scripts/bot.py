@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Long-running Telegram bot: approve/reject drafts, voice replies, /draft, /status."""
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -31,7 +33,7 @@ def _write_offset(path: Path, value: int) -> None:
 def main() -> int:
     from cybershorts import db, pipeline
     from cybershorts.config import load
-    from cybershorts.telegram import Telegram, esc, keyboard
+    from cybershorts.telegram import Telegram, esc, keyboard, recap_keyboard
 
     cfg = load()
     if not cfg.telegram_bot_token or not cfg.telegram_chat_id:
@@ -74,6 +76,9 @@ def main() -> int:
         if not (yt_left or tt_left):
             return
         try:
+            if row["kind"] == "recap":  # YouTube only; Publish uses the same pub:yt button
+                tg.send_message("Recap %s: not published. Retry?" % draft_id, recap_keyboard(draft_id))
+                return
             tg.send_message(
                 "Draft %s: retry remaining targets?" % draft_id,
                 keyboard(draft_id, yt_enabled=yt_left, tt_enabled=tt_left, manual_fallback=False))
@@ -106,11 +111,13 @@ def main() -> int:
                 conn.close()
             yt_left = cfg.get("youtube.enabled", True) and not row["youtube_id"]
             tt_left = cfg.get("tiktok.enabled", True) and not row["tiktok_publish_id"]
+            if row["kind"] == "recap":  # recaps are YouTube only
+                tt_left = False
+            kb = (recap_keyboard(draft_id) if row["kind"] == "recap" else
+                  keyboard(draft_id, yt_enabled=yt_left, tt_enabled=tt_left,
+                           manual_fallback=not (yt_left or tt_left)))
             try:
-                tg.send_message(
-                    "Draft %s was interrupted while publishing. Retry?" % draft_id,
-                    keyboard(draft_id, yt_enabled=yt_left, tt_enabled=tt_left,
-                             manual_fallback=not (yt_left or tt_left)))
+                tg.send_message("Draft %s was interrupted while publishing. Retry?" % draft_id, kb)
             except Exception:  # noqa: BLE001
                 log.exception("Failed to send stuck-draft keyboard")
 
@@ -217,11 +224,26 @@ def main() -> int:
                 return
             if made is None:
                 reply("No new stories right now.")
+        elif cmd == "/recap":
+            if not cfg.get("recap.enabled", True):
+                reply("The weekly recap is turned off (recap.enabled: false).")
+                return
+            force = "force" in [w.lower() for w in text.split()[1:]]
+            reply("Making this week's recap (~20 min)...")
+            argv = [sys.executable, str(Path(__file__).resolve().parent / "recap.py"), "--on-demand"]
+            if shutil.which("nice"):  # the render is heavy; keep the bot and the rest of the box responsive
+                argv = ["nice", "-n", "10"] + argv
+            if force:
+                argv.append("--force")
+            try:
+                subprocess.Popen(argv, cwd=str(cfg.app_dir), start_new_session=True)
+            except OSError as e:
+                reply("Could not start the recap: %s" % esc(str(e)[:200]))
         elif cmd == "/status":
             handle_status()
             offer_stuck()
         elif cmd == "/start":
-            reply("Cyber Shorts bot ready. Commands: /draft, /status.")
+            reply("Cyber Shorts bot ready. Commands: /draft, /recap [force], /status.")
         elif msg.get("voice") or msg.get("audio"):
             handle_voice(msg)
 

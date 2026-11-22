@@ -1,0 +1,11 @@
+[Unit]
+Description=Run cybershorts weekly recap every Sunday morning
+
+[Timer]
+OnCalendar=Sun *-*-* 09:30:00 America/New_York
+Persistent=true
+RandomizedDelaySec=300
+Unit=cybershorts-recap.service
+
+[Install]
+WantedBy=timers.target

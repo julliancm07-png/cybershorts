@@ -16,7 +16,6 @@ import re
 import subprocess
 import time
 from contextlib import contextmanager
-from pathlib import Path
 
 from .config import SECRET_KEYS, Config
 

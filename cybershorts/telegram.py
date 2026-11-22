@@ -46,6 +46,14 @@ def keyboard(draft_id, yt_enabled: bool = True, tt_enabled: bool = True,
     return {"inline_keyboard": rows}
 
 
+def recap_keyboard(draft_id) -> dict:
+    """Review keyboard for a weekly recap: YouTube only (no TikTok)."""
+    return {"inline_keyboard": [
+        [{"text": "▶️ Publish to YouTube", "callback_data": f"pub:yt:{draft_id}"}],
+        [{"text": "❌ Reject", "callback_data": f"rej:{draft_id}"}],
+    ]}
+
+
 class Telegram:
     def __init__(self, token: str, chat_id):
         if not token:
@@ -130,6 +138,23 @@ class Telegram:
         name = Path(path).name
         return self._call("sendDocument", data=data, timeout=300,
                           files=lambda: {"document": (name, open(path, "rb"), "application/octet-stream")})
+
+    def send_audio(self, path, caption: str = "", title: str | None = None,
+                   performer: str | None = None) -> dict:
+        data = {"chat_id": self.chat_id, "caption": (caption or "")[:1024], "parse_mode": "HTML"}
+        if title:
+            data["title"] = title
+        if performer:
+            data["performer"] = performer
+        name = Path(path).name
+        return self._call("sendAudio", data=data, timeout=300,
+                          files=lambda: {"audio": (name, open(path, "rb"), "audio/mpeg")})
+
+    def send_photo(self, path, caption: str = "") -> dict:
+        data = {"chat_id": self.chat_id, "caption": (caption or "")[:1024], "parse_mode": "HTML"}
+        name = Path(path).name
+        return self._call("sendPhoto", data=data, timeout=60,
+                          files=lambda: {"photo": (name, open(path, "rb"), "image/jpeg")})
 
     def send_video(self, path, caption: str, reply_markup=None) -> dict:
         data = {

@@ -92,6 +92,52 @@ Deploy steps after pulling v3 (no new Python dependencies):
 
 Note: with an old `config.yaml` (one that lacks the v3 keys), every v3 feature defaults to on: breaking drafts (once the timer is enabled), first comments, NVD lookups, and the hook-pick LLM call. To turn them off, set `breaking.enabled: false`, `youtube.first_comment: false`, `data_card.nvd: false` and `llm.hooks: 1` (1 also disables alternate hooks and the hook-pick call).
 
+## Weekly recap
+
+Every Sunday the bot makes a 4-5 minute landscape YouTube video (a 600-800 word script) of the week's top stories, drawn from the Shorts published that week. It has chapters, a thumbnail and an auto first comment. You get a preview in Telegram with two buttons, "Publish to YouTube" and "Reject". It is posted to YouTube only, not TikTok.
+
+Setup, as root:
+
+```bash
+csgit pull
+cp /opt/cybershorts/systemd/cybershorts-recap.* /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now cybershorts-recap.timer
+systemctl restart cybershorts-bot
+```
+
+Send `/recap` in Telegram to make one now (`/recap force` to remake this week's).
+
+Notes:
+- It runs Sundays at 09:30 ET and needs at least `recap.min_stories` (3) published Shorts that week.
+- Each recap uses roughly 4,000-5,000 ElevenLabs credits.
+- Custom thumbnails need a phone-verified channel (youtube.com/verify). Without one, YouTube picks a frame and Telegram shows a warning.
+- Restarting the bot while a `/recap` is rendering stops that run. The stopped run is recovered automatically: it is marked failed, and the next `/recap` or the weekly timer starts over instead of the week staying blocked.
+- If a publish fails after the video is rendered, `/recap` will not remake it (that would re-spend the voice credits). Tap Publish to YouTube on it again, or send `/recap force` to remake.
+
+## Sound kit
+
+The sound kit is a set of ElevenLabs-generated sound effects: a hook at the start of each Short, a whoosh before beat changes, a breaking alert on breaking videos, a blip on the CVE data card, and a sting on the end card. It also includes an original theme and 3 background beds. The recap uses the theme and a bed.
+
+Setup, as root, in `/opt/cybershorts`:
+
+```bash
+cd /opt/cybershorts
+csgit pull
+cs scripts/make_sound_kit.py --dry-run      # see prompts and estimated credits
+cs scripts/make_sound_kit.py                # generate; each sound is sent to Telegram to listen
+cs scripts/make_sound_kit.py --only hook,whoosh --variants 3   # retry ones you don't like
+cs scripts/make_sound_kit.py --use hook=2   # keep variant 2
+systemctl restart cybershorts-bot
+```
+
+Notes:
+
+- Sound effects cost 40 credits per second (the whole SFX set is about 225 credits). ElevenLabs does not publish the music cost, so the estimate is about 3,500 credits for the theme and 3 beds. The script checks your balance first.
+- Files live in `data/brand/sound/`. They are not in git and are included in the weekly backup.
+- Generated music may be used commercially on paid ElevenLabs plans without attribution, but not resold as a library. Follow YouTube and TikTok rules for labelling AI-generated content.
+- To turn it off, set `sound.enabled: false`. Videos then render exactly as before. `sound.sfx_on_tiktok: false` keeps TikTok without effects. When that clean TikTok version exists it is always what TikTok gets, even if `music.on_tiktok` is true: music is not added to it (an info line is logged). `music.prefer_kit: false` keeps your own music folder.
+
 ## Alerts and backups
 
 **Failure alerts.** Every job (draft, breaking, analytics, backup) and the bot sends a Telegram message when it fails. The message includes the last log lines, with secrets removed, and a tip for common causes like no credits, an expired login, a full disk, or no internet. A job that keeps failing alerts at most once every `alerts.repeat_minutes` (180), and sends one "working again" note when it recovers.
@@ -124,7 +170,9 @@ For the whole container, also schedule a Proxmox backup: Datacenter > Backup > A
 
 ```
 python scripts/make_draft.py      # create one draft now (also run by the timer)
+python scripts/recap.py --force   # make this week's recap now
 python scripts/bot.py             # Telegram review bot (long-running, run by systemd)
+python scripts/make_sound_kit.py --dry-run   # preview the sound kit cost
 python scripts/breaking.py --dry-run      # show what a breaking run would do; no draft, no Telegram, no seen/used/urgency marks; still fetches feeds and calls the LLM
 python scripts/backup.py --no-telegram   # back up now, keep it local only
 python scripts/alert.py --test           # send a test failure alert

@@ -1,0 +1,30 @@
+[Script Info]
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Caption,DejaVu Sans,92,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,6,0,5,60,60,0,1
+Style: Title,DejaVu Sans,57,&H0000E5FF,&H0000E5FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,5,0,8,70,70,260,1
+Style: Handle,DejaVu Sans,36,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,0,2,60,60,150,1
+Style: Hook,DejaVu Sans,105,&H000AD6FF,&H000AD6FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,8,0,5,70,70,0,1
+Style: Bar,DejaVu Sans,20,&H00FFDC3D,&H00FFDC3D,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 2,0:00:00.00,0:00:01.60,Hook,,0,0,0,,{\an5\q0\pos(540,691)\fad(0,180)\fscx70\fscy70\t(0,220,\fscx100\fscy100)}BIG VPN FLAW
+Dialogue: 0,0:00:01.60,0:00:05.00,Title,,0,0,0,,BIG VPN FLAW
+Dialogue: 0,0:00:00.00,0:00:05.00,Handle,,0,0,0,,@me
+Dialogue: 1,0:00:00.00,0:00:00.49,Caption,,0,0,0,,{\pos(540,1152)}{\c&H00FFDC3D&\b1\fscx85\fscy85\t(0,90,\fscx112\fscy112)}W0 {\c&H00FFFFFF&\b1\fscx85\fscy85\t(0,90,\fscx100\fscy100)}W1 {\c&H00FFFFFF&\b1\fscx85\fscy85\t(0,90,\fscx100\fscy100)}W2
+Dialogue: 1,0:00:00.50,0:00:00.99,Caption,,0,0,0,,{\pos(540,1152)}{\c&H00FFFFFF&\b1\fscx100\fscy100}W0 {\c&H00FFDC3D&\b1\fscx112\fscy112}W1 {\c&H00FFFFFF&\b1\fscx100\fscy100}W2
+Dialogue: 1,0:00:01.00,0:00:01.49,Caption,,0,0,0,,{\pos(540,1152)}{\c&H00FFFFFF&\b1\fscx100\fscy100}W0 {\c&H00FFFFFF&\b1\fscx100\fscy100}W1 {\c&H00FFDC3D&\b1\fscx112\fscy112}W2
+Dialogue: 1,0:00:01.50,0:00:01.99,Caption,,0,0,0,,{\pos(540,1152)}{\c&H00FFDC3D&\b1\fscx85\fscy85\t(0,90,\fscx112\fscy112)}W3 {\c&H00FFFFFF&\b1\fscx85\fscy85\t(0,90,\fscx100\fscy100)}W4 {\c&H00FFFFFF&\b1\fscx85\fscy85\t(0,90,\fscx100\fscy100)}W5
+Dialogue: 1,0:00:02.00,0:00:02.49,Caption,,0,0,0,,{\pos(540,1152)}{\c&H00FFFFFF&\b1\fscx100\fscy100}W3 {\c&H00FFDC3D&\b1\fscx112\fscy112}W4 {\c&H00FFFFFF&\b1\fscx100\fscy100}W5
+Dialogue: 1,0:00:02.50,0:00:02.99,Caption,,0,0,0,,{\pos(540,1152)}{\c&H00FFFFFF&\b1\fscx100\fscy100}W3 {\c&H00FFFFFF&\b1\fscx100\fscy100}W4 {\c&H00FFDC3D&\b1\fscx112\fscy112}W5
+Dialogue: 1,0:00:03.00,0:00:03.49,Caption,,0,0,0,,{\pos(540,1152)}{\c&H00FFDC3D&\b1\fscx85\fscy85\t(0,90,\fscx112\fscy112)}W6 {\c&H00FFFFFF&\b1\fscx85\fscy85\t(0,90,\fscx100\fscy100)}W7 {\c&H00FFFFFF&\b1\fscx85\fscy85\t(0,90,\fscx100\fscy100)}W8
+Dialogue: 1,0:00:03.50,0:00:03.99,Caption,,0,0,0,,{\pos(540,1152)}{\c&H00FFFFFF&\b1\fscx100\fscy100}W6 {\c&H00FFDC3D&\b1\fscx112\fscy112}W7 {\c&H00FFFFFF&\b1\fscx100\fscy100}W8
+Dialogue: 1,0:00:04.00,0:00:04.50,Caption,,0,0,0,,{\pos(540,1152)}{\c&H00FFFFFF&\b1\fscx100\fscy100}W6 {\c&H00FFFFFF&\b1\fscx100\fscy100}W7 {\c&H00FFDC3D&\b1\fscx112\fscy112}W8
+Dialogue: 3,0:00:00.00,0:00:05.00,Bar,,0,0,0,,{\an7\pos(0,1906)\p1\fscx0\t(0,5000,\fscx100)\c&H00FFDC3D&\bord0\shad0}m 0 0 l 1080 0 1080 14 0 14{\p0}

@@ -25,6 +25,12 @@ def _clean(text: str) -> str:
     return (text or "").replace("<", "").replace(">", "")
 
 
+def _cap_bytes(text: str, limit: int) -> str:
+    """YouTube's description limit is 5000 BYTES; cut on a character boundary."""
+    b = text.encode("utf-8")
+    return text if len(b) <= limit else b[:limit].decode("utf-8", "ignore")
+
+
 def _save(creds, path: Path) -> None:
     path = Path(path)
     prior = {}
@@ -89,19 +95,20 @@ def get_service(cfg, api: str = "youtube", version: str = "v3"):
     return build(api, version, credentials=creds, cache_discovery=False)
 
 
-def upload(cfg, video, title: str, description: str, tags: list[str] | None = None) -> str:
+def upload(cfg, video, title: str, description: str, tags: list[str] | None = None, *,
+           category_id: str | None = None) -> str:
     from googleapiclient.errors import HttpError
     from googleapiclient.http import MediaFileUpload
 
     title = _clean(title)[:100]
-    description = _clean(description)[:4900]
+    description = _cap_bytes(_clean(description), 4900)
     yt = get_service(cfg)
     body = {
         "snippet": {
             "title": title,
             "description": description,
             "tags": list(tags or [])[:15],
-            "categoryId": str(cfg.get("youtube.category_id", "28")),
+            "categoryId": str(category_id if category_id else cfg.get("youtube.category_id", "28")),
         },
         "status": {
             "privacyStatus": cfg.get("youtube.privacy", "public"),
@@ -127,6 +134,35 @@ def upload(cfg, video, title: str, description: str, tags: list[str] | None = No
     if not vid:
         raise RuntimeError(f"YouTube upload returned no id: {response}")
     return vid
+
+
+def set_thumbnail(cfg, video_id: str, path) -> tuple[bool, str]:
+    """Set a custom thumbnail (JPEG). Never raises. Returns (ok, reason)."""
+    try:
+        from googleapiclient.errors import HttpError
+        from googleapiclient.http import MediaFileUpload
+
+        if not path or not Path(path).exists():
+            return False, "thumbnail file missing"
+        yt = get_service(cfg)
+        for attempt in (0, 1):
+            try:
+                media = MediaFileUpload(str(path), mimetype="image/jpeg")
+                yt.thumbnails().set(videoId=video_id, media_body=media).execute()
+                return True, "ok"
+            except HttpError as e:
+                status = getattr(e.resp, "status", 0)
+                if status == 403:
+                    return False, "channel not allowed custom thumbnails (verify phone)"
+                if attempt == 0 and status >= 500:
+                    log.warning("Thumbnail set failed (HTTP %s), retrying once", status)
+                    time.sleep(5)
+                    continue
+                return False, f"HTTP {status}"
+    except Exception as e:  # noqa: BLE001
+        log.warning("Thumbnail failed: %s", type(e).__name__)
+        return False, f"{type(e).__name__}: {str(e)[:100]}"
+    return False, "unknown"
 
 
 def post_comment(cfg, video_id: str, text: str) -> tuple[str | None, str]:

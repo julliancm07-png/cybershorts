@@ -107,6 +107,16 @@ def main() -> int:
         except Exception as e:  # noqa: BLE001
             report(False, "tiktok token readable", str(e))
 
+    if cfg.get("sound.enabled", True) is False:
+        print("  (Sound kit: off)")
+    else:
+        kit_names = [it["name"] for it in (cfg.get("sound.kit") or []) if isinstance(it, dict) and it.get("name")]
+        folder = str(cfg.get("sound.folder", "brand/sound"))
+        sound_dir = cfg.path(folder)
+        have = sum(1 for n in kit_names
+                   if any((sound_dir / (n + ext)).is_file() and (sound_dir / (n + ext)).stat().st_size > 0
+                          for ext in (".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac")))
+        print("  (Sound kit: %d/%d files in data/%s)" % (have, len(kit_names), folder))
     if args.offline:
         print("\nOffline mode: network checks skipped.")
         return 0 if FAILS == 0 else 1

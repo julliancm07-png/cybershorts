@@ -49,6 +49,81 @@ class PickTests(MusicBase):
         self.assertEqual(self.music.add_music(self.cfg, 1, Path("x.mp4")), (None, "off"))
 
 
+class KitBedTests(MusicBase):
+    def kit(self):
+        d = self.cfg.path() / "brand/sound"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def test_kit_beds_selects_bed_audio_only_sorted(self):
+        k = self.kit()
+        for n in ("bed2.wav", "bed1.mp3", "bed3.flac", "bed4.txt", "theme.mp3", "bedtime.jpg"):
+            (k / n).write_bytes(b"x")
+        self.assertEqual([p.name for p in self.music.kit_beds(self.cfg)],
+                         ["bed1.mp3", "bed2.wav", "bed3.flac"])
+
+    def test_kit_beds_rejects_variants_and_temp_files(self):
+        k = self.kit()
+        good = ["bed.mp3", "bed1.WAV", "bed2.m4a", "bed10.ogg", "BED3.flac"]
+        bad = ["bed1.v2.mp3", "bed2.tmp.mp3", "bed1.mp3.part", "bed_old.mp3", "bedx.mp3", "bed1.aac",
+               "bed1.opus", "bed.mp3.tmp", "bed1-v2.mp3", "xbed1.mp3"]
+        for n in good + bad:
+            (k / n).write_bytes(b"x")
+        self.assertEqual(sorted(p.name for p in self.music.kit_beds(self.cfg)), sorted(good))
+
+    def test_kit_beds_missing_folder(self):
+        self.assertEqual(self.music.kit_beds(self.cfg), [])
+
+    def test_prefers_kit_beds_over_folder_tracks(self):
+        k = self.kit()
+        (k / "bed1.mp3").write_bytes(b"x")
+        (k / "bed2.m4a").write_bytes(b"x")
+        d = self.music.music_dir(self.cfg)
+        (d / "folder.mp3").write_bytes(b"x")
+        picks = {self.music.pick_track(self.cfg).name for _ in range(30)}
+        self.assertEqual(picks, {"bed1.mp3", "bed2.m4a"})
+
+    def test_never_same_bed_twice_in_a_row(self):
+        k = self.kit()
+        (k / "bed1.mp3").write_bytes(b"x")
+        (k / "bed2.mp3").write_bytes(b"x")
+        picks = [self.music.pick_track(self.cfg).name for _ in range(30)]
+        self.assertTrue(all(x != y for x, y in zip(picks, picks[1:])))
+
+    def test_falls_back_to_folder_without_beds(self):
+        k = self.kit()
+        (k / "theme.mp3").write_bytes(b"x")  # kit file, but not a bed*
+        d = self.music.music_dir(self.cfg)
+        (d / "a.mp3").write_bytes(b"x")
+        (d / "b.m4a").write_bytes(b"x")
+        picks = [self.music.pick_track(self.cfg).name for _ in range(20)]
+        self.assertTrue(all(p in ("a.mp3", "b.m4a") for p in picks))
+
+    def test_sound_disabled_ignores_beds(self):
+        k = self.kit()
+        (k / "bed1.mp3").write_bytes(b"x")
+        d = self.music.music_dir(self.cfg)
+        (d / "a.mp3").write_bytes(b"x")
+        self.cfg.raw.setdefault("sound", {})["enabled"] = False
+        picks = {self.music.pick_track(self.cfg).name for _ in range(10)}
+        self.assertEqual(picks, {"a.mp3"})
+
+    def test_prefer_kit_false_ignores_beds(self):
+        k = self.kit()
+        (k / "bed1.mp3").write_bytes(b"x")
+        d = self.music.music_dir(self.cfg)
+        (d / "a.mp3").write_bytes(b"x")
+        self.cfg.raw.setdefault("music", {})["prefer_kit"] = False
+        picks = {self.music.pick_track(self.cfg).name for _ in range(10)}
+        self.assertEqual(picks, {"a.mp3"})
+
+    def test_sound_disabled_and_no_folder_tracks_is_none(self):
+        k = self.kit()
+        (k / "bed1.mp3").write_bytes(b"x")
+        self.cfg.raw.setdefault("sound", {})["enabled"] = False
+        self.assertIsNone(self.music.pick_track(self.cfg))
+
+
 @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg not installed")
 class MixTests(MusicBase):
     def test_mix_copies_video_and_ducks(self):
