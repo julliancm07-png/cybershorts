@@ -1,6 +1,6 @@
 # cybershorts
 
-Automated IT and cybersecurity news Shorts. Each run picks a recent story from RSS feeds, writes a short script, narrates it with Piper, adds word-timed captions and b-roll, and sends the finished 1080x1920 video to Telegram for approval. Approved videos go to YouTube Shorts and to your TikTok inbox as drafts.
+Automated IT and cybersecurity news Shorts. Each run picks a recent story from RSS feeds, writes a short script, narrates it with ElevenLabs (or local Kokoro/Piper), adds word-timed captions, b-roll and music, and sends the finished 1080x1920 video to Telegram for approval. Approved videos go to YouTube Shorts and to your TikTok inbox as drafts.
 
 ## Architecture
 
