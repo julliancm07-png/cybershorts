@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 import subprocess
 import sys
 import wave
@@ -76,8 +77,12 @@ def _kokoro_paths(cfg) -> tuple[Path, Path]:
     return d / KOKORO_FILES["model"], d / KOKORO_FILES["voices"]
 
 
-def ensure_voice(cfg) -> Path:
-    engine = str(cfg.get("voice.engine", "kokoro")).lower()
+def ensure_voice(cfg, engine: str | None = None) -> Path | None:
+    """Make sure local voice files exist. ElevenLabs needs none (returns None)."""
+    engine = str(engine or cfg.get("voice.engine", "kokoro")).lower()
+    if engine == "elevenlabs":
+        fb = str(cfg.get("voice.fallback_engine", "kokoro") or "").lower()
+        return ensure_voice(cfg, fb) if fb and fb != "elevenlabs" else None
     if engine == "kokoro":
         model, voices = _kokoro_paths(cfg)
         for p in (model, voices):
@@ -107,6 +112,71 @@ def ensure_voice(cfg) -> Path:
 
 
 # ---------- engines: each returns (int16 samples as array('h'), sample_rate) per sentence ----------
+class EngineUnavailable(RuntimeError):
+    """The engine can't be used right now (no key, out of credits, service down)."""
+
+
+class _ElevenLabs:
+    """ElevenLabs API. Uses previous/next text so prosody flows across beats."""
+
+    context = True
+    URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice}"
+
+    def __init__(self, cfg):
+        self.key = getattr(cfg, "elevenlabs_api_key", "") or ""
+        if not self.key:
+            raise EngineUnavailable("ELEVENLABS_API_KEY is not set")
+        self.voice = str(cfg.get("voice.elevenlabs.voice_id", "JBFqnCBsd6RMkjVDRZzb"))
+        self.model = str(cfg.get("voice.elevenlabs.model", "eleven_multilingual_v2"))
+        self.settings = {
+            "stability": float(cfg.get("voice.elevenlabs.stability", 0.45)),
+            "similarity_boost": float(cfg.get("voice.elevenlabs.similarity_boost", 0.8)),
+            "style": float(cfg.get("voice.elevenlabs.style", 0.15)),
+            "use_speaker_boost": bool(cfg.get("voice.elevenlabs.speaker_boost", True)),
+        }
+        speed = float(cfg.get("voice.elevenlabs.speed", 1.0))
+        if abs(speed - 1.0) > 1e-6:
+            self.settings["speed"] = speed
+
+    def say(self, text: str, previous_text: str = "", next_text: str = ""):
+        body = {"text": text, "model_id": self.model, "voice_settings": self.settings}
+        if previous_text:
+            body["previous_text"] = previous_text[-1000:]
+        if next_text:
+            body["next_text"] = next_text[:1000]
+        last = None
+        for attempt in range(3):
+            try:
+                r = requests.post(self.URL.format(voice=self.voice), params={"output_format": "pcm_24000"},
+                                  headers={"xi-api-key": self.key, "Content-Type": "application/json"},
+                                  json=body, timeout=120)
+            except requests.RequestException as e:
+                last = f"network error ({type(e).__name__})"
+                time.sleep(2 + 3 * attempt)
+                continue
+            if r.status_code == 200 and len(r.content) > 1000:
+                pcm = array("h")
+                pcm.frombytes(r.content[: len(r.content) // 2 * 2])
+                if sys.byteorder == "big":
+                    pcm.byteswap()
+                return pcm, 24000
+            detail = ""
+            try:
+                d = r.json().get("detail")
+                detail = str(d.get("status") or d.get("message") or d) if isinstance(d, dict) else str(d or "")
+            except (ValueError, AttributeError):
+                detail = str(getattr(r, "text", ""))
+            detail = detail[:120]
+            if r.status_code in (401, 402, 403) or "quota" in detail.lower():
+                raise EngineUnavailable(f"ElevenLabs HTTP {r.status_code}: {detail or 'not allowed'}")
+            last = f"HTTP {r.status_code}: {detail}"
+            if r.status_code in (429, 500, 502, 503, 504):
+                time.sleep(3 + 5 * attempt)
+                continue
+            break
+        raise EngineUnavailable(f"ElevenLabs failed: {last}")
+
+
 class _Kokoro:
     def __init__(self, cfg):
         from kokoro_onnx import Kokoro  # lazy
@@ -129,7 +199,7 @@ class _Piper:
     def __init__(self, cfg):
         from piper import PiperVoice, SynthesisConfig  # lazy
 
-        self.v = PiperVoice.load(str(ensure_voice(cfg)))
+        self.v = PiperVoice.load(str(ensure_voice(cfg, "piper")))
         self.syn = SynthesisConfig(length_scale=float(cfg.get("voice.length_scale", 0.92)))
 
     def say(self, sentence: str):
@@ -194,10 +264,29 @@ def _gap(sr: int, seconds: float, room_tone_db) -> array:
     return out
 
 
+def _make_engine(cfg, name: str):
+    if name == "elevenlabs":
+        return _ElevenLabs(cfg)
+    if name == "piper":
+        return _Piper(cfg)
+    ensure_voice(cfg, "kokoro")
+    return _Kokoro(cfg)
+
+
 def synthesize(cfg, text: str, out_wav) -> Path:
     engine_name = str(cfg.get("voice.engine", "kokoro")).lower()
-    ensure_voice(cfg)
-    engine = _Kokoro(cfg) if engine_name == "kokoro" else _Piper(cfg)
+    fallback = str(cfg.get("voice.fallback_engine", "kokoro") or "").lower()
+    try:
+        return _synthesize_with(cfg, engine_name, text, out_wav)
+    except EngineUnavailable as e:
+        if not fallback or fallback == engine_name:
+            raise RuntimeError(str(e)) from None
+        log.warning("%s; falling back to %s for this draft", e, fallback)
+        return _synthesize_with(cfg, fallback, text, out_wav)
+
+
+def _synthesize_with(cfg, engine_name: str, text: str, out_wav) -> Path:
+    engine = _make_engine(cfg, engine_name)
     s_pause = float(cfg.get("voice.sentence_pause", 0.22))
     p_pause = float(cfg.get("voice.paragraph_pause", 0.45))
     room = cfg.get("voice.room_tone_db", -62)
@@ -212,7 +301,12 @@ def synthesize(cfg, text: str, out_wav) -> Path:
     spans: list[list[float]] = []  # per paragraph: [start_s, end_s] of speech in the final audio
     for pi, para in enumerate(units):
         for si, chunk in enumerate(para):
-            seg, seg_sr = engine.say(chunk)
+            if getattr(engine, "context", False):
+                prev_txt = " ".join(" ".join(u) for u in units[:pi]) + (" " + " ".join(para[:si]) if si else "")
+                next_txt = " ".join(para[si + 1:]) + " " + " ".join(" ".join(u) for u in units[pi + 1:])
+                seg, seg_sr = engine.say(chunk, previous_text=prev_txt.strip(), next_text=next_txt.strip())
+            else:
+                seg, seg_sr = engine.say(chunk)
             if sr is None:
                 sr = seg_sr
             start = len(pcm)

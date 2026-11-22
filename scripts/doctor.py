@@ -132,6 +132,20 @@ def main() -> int:
         print("  b-roll provider: %s; local clips in %s: %d" % (cfg.get("broll.provider", "pixabay"), d, n))
     except Exception:  # noqa: BLE001
         pass
+    if getattr(cfg, "elevenlabs_api_key", ""):
+        try:
+            r = requests.get("https://api.elevenlabs.io/v1/user/subscription", timeout=15,
+                             headers={"xi-api-key": cfg.elevenlabs_api_key})
+            if r.ok:
+                j = r.json()
+                used, limit = j.get("character_count", 0), j.get("character_limit", 0)
+                report(True, "ElevenLabs key", f"{j.get('tier', '?')} plan, {used:,}/{limit:,} credits used this period")
+            else:
+                report(False, "ElevenLabs key", "HTTP %d" % r.status_code)
+        except requests.RequestException as e:
+            report(False, "ElevenLabs key", type(e).__name__)
+    elif str(cfg.get("voice.engine", "kokoro")).lower() == "elevenlabs":
+        report(False, "ElevenLabs key", "voice.engine is elevenlabs but ELEVENLABS_API_KEY is empty")
     if cfg.pixabay_api_key:
         try:
             r = requests.get("https://pixabay.com/api/videos/", timeout=15,

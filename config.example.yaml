@@ -41,11 +41,20 @@ llm:
 # Narration. mode: tts (AI voice) or record (you send a Telegram voice message).
 voice:
   mode: tts
-  engine: kokoro           # kokoro (natural, ~1x real time) or piper (faster, flatter)
+  engine: kokoro           # elevenlabs (most human, needs ELEVENLABS_API_KEY), kokoro (free, local) or piper
   kokoro_voice: am_michael # try am_adam, am_eric, am_liam, am_onyx, af_heart, af_nicole, bm_george
   speed: 1.0               # kokoro: >1 faster
   piper_voice: "en_US-ryan-high"
   length_scale: 0.92       # piper: >1 slower, <1 faster
+  fallback_engine: kokoro  # used automatically if ElevenLabs is out of credits or unreachable
+  elevenlabs:
+    voice_id: JBFqnCBsd6RMkjVDRZzb   # copy a Voice ID from elevenlabs.io > Voices (default: George)
+    model: eleven_multilingual_v2     # best quality; eleven_flash_v2_5 uses ~half the credits
+    stability: 0.45          # lower = more expressive, higher = steadier
+    similarity_boost: 0.8
+    style: 0.15              # a little delivery style; 0 = neutral
+    speaker_boost: true
+    speed: 1.0               # 0.7-1.2
   chunking: paragraph      # paragraph = sentences flow naturally (recommended); sentence = one clip per sentence
   room_tone_db: -62        # faint background in pauses instead of dead silence; null = pure silence
   sentence_pause: 0.22     # seconds between sentences (sentence chunking only)
