@@ -93,6 +93,8 @@ DEFAULTS: dict[str, Any] = {
     "tiktok": {"enabled": True},
     "music": {"enabled": True, "folder": "music", "volume_db": -20, "duck": True, "on_tiktok": False},
     "cleanup": {"keep_days": 7},
+    "alerts": {"enabled": True, "repeat_minutes": 180, "log_lines": 25},
+    "backup": {"keep": 8, "telegram": True, "max_telegram_mb": 45},
     "series": {
         "enabled": True,
         "items": [
@@ -155,6 +157,7 @@ SECRET_KEYS = [
     "TIKTOK_REDIRECT_URI",
     "HEALTHCHECK_URL",
     "NVD_API_KEY",
+    "BACKUP_PASSPHRASE",
 ]
 
 DATA_SUBDIRS = ("videos", "voices", "models", "work", "broll", "brand", "music")

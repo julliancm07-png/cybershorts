@@ -2,6 +2,8 @@
 Description=cybershorts: pull YouTube video stats, update writing learnings and send the weekly report
 After=network-online.target
 Wants=network-online.target
+OnFailure=cybershorts-alert@fail:%N.service
+OnSuccess=cybershorts-alert@ok:%N.service
 
 [Service]
 Type=oneshot

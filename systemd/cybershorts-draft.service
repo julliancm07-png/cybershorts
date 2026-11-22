@@ -2,6 +2,8 @@
 Description=cybershorts: create one news Short draft and send it for review
 After=network-online.target
 Wants=network-online.target
+OnFailure=cybershorts-alert@fail:%N.service
+OnSuccess=cybershorts-alert@ok:%N.service
 
 [Service]
 Type=oneshot

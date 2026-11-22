@@ -1,0 +1,15 @@
+[Unit]
+Description=cybershorts: Telegram alert for %i
+
+[Service]
+Type=oneshot
+TimeoutStartSec=3min
+User=cybershorts
+Group=cybershorts
+# lets the alert read the failed job's log lines
+SupplementaryGroups=systemd-journal
+WorkingDirectory=/opt/cybershorts
+ExecStart=/opt/cybershorts/.venv/bin/python scripts/alert.py %i
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full

@@ -2,6 +2,7 @@
 Description=cybershorts Telegram review bot
 After=network-online.target
 Wants=network-online.target
+OnFailure=cybershorts-alert@fail:%N.service
 
 [Service]
 Type=simple

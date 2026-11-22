@@ -69,12 +69,42 @@ Deploy steps after pulling v3 (no new Python dependencies):
 
 Note: with an old `config.yaml` (one that lacks the v3 keys), every v3 feature defaults to on: breaking drafts (once the timer is enabled), first comments, NVD lookups, and the hook-pick LLM call. To turn them off, set `breaking.enabled: false`, `youtube.first_comment: false`, `data_card.nvd: false` and `llm.hooks: 1` (1 also disables alternate hooks and the hook-pick call).
 
+## Alerts and backups
+
+**Failure alerts.** Every job (draft, breaking, analytics, backup) and the bot sends a Telegram message when it fails. The message includes the last log lines, with secrets removed, and a tip for common causes like no credits, an expired login, a full disk, or no internet. A job that keeps failing alerts at most once every `alerts.repeat_minutes` (180), and sends one "working again" note when it recovers.
+
+**Backups.** `scripts/backup.py` saves `.env`, `config.yaml`, `client_secret.json`, the YouTube/TikTok logins, `learnings.md`, `data/brand/` and a consistent copy of the database to `data/backups/`, keeping the last 8. Videos, b-roll, music and voice models are not included. If `BACKUP_PASSPHRASE` is set in `.env`, the archive is encrypted with AES-256 and also sent to your Telegram chat as an off-site copy. Keep the passphrase in your password manager, because a backup can't be restored without it.
+
+Setup, as root:
+
+```bash
+csgit pull
+cp /opt/cybershorts/systemd/cybershorts-*.service /opt/cybershorts/systemd/cybershorts-*.timer /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now cybershorts-backup.timer
+systemctl restart cybershorts-bot
+cs scripts/alert.py --test         # you should get a test alert in Telegram
+cs scripts/backup.py               # first backup now
+```
+
+Restore on a fresh container:
+
+```bash
+openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -in cybershorts-XXXX.tar.gz.enc -out restore.tar.gz
+tar xzf restore.tar.gz             # -> cybershorts/.env, config.yaml, data/...
+cp -a cybershorts/. /opt/cybershorts/ && chown -R cybershorts:cybershorts /opt/cybershorts
+```
+
+For the whole container, also schedule a Proxmox backup: Datacenter > Backup > Add, select CT 111, choose weekly, mode Snapshot, retention "keep last 4". That copy sits on the same disk as the container, so the encrypted Telegram copy is the one that survives a dead drive.
+
 ## Commands
 
 ```
 python scripts/make_draft.py      # create one draft now (also run by the timer)
 python scripts/bot.py             # Telegram review bot (long-running, run by systemd)
 python scripts/breaking.py --dry-run      # show what a breaking run would do; no draft, no Telegram, no seen/used/urgency marks; still fetches feeds and calls the LLM
+python scripts/backup.py --no-telegram   # back up now, keep it local only
+python scripts/alert.py --test           # send a test failure alert
 python scripts/analytics.py --no-telegram # pull stats and update learnings without the Telegram report
 python scripts/doctor.py          # check config, FFmpeg, fonts, tokens and API keys
 python scripts/test_render.py     # offline render smoke test (no network)

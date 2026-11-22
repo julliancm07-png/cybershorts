@@ -125,6 +125,12 @@ class Telegram:
             data.pop("parse_mode")  # fall back to plain text
             return self._call("sendMessage", data=data)
 
+    def send_document(self, path, caption: str = "") -> dict:
+        data = {"chat_id": self.chat_id, "caption": (caption or "")[:1024], "parse_mode": "HTML"}
+        name = Path(path).name
+        return self._call("sendDocument", data=data, timeout=300,
+                          files=lambda: {"document": (name, open(path, "rb"), "application/octet-stream")})
+
     def send_video(self, path, caption: str, reply_markup=None) -> dict:
         data = {
             "chat_id": self.chat_id,

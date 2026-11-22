@@ -45,6 +45,11 @@ def main() -> int:
                  "tiktok_client_key", "tiktok_client_secret", "tiktok_redirect_uri"):
         report(bool(getattr(cfg, attr, "")), "env " + attr.upper())
     print("  (HEALTHCHECK_URL is optional: %s)" % ("set" if cfg.healthcheck_url else "not set"))
+    print("  (BACKUP_PASSPHRASE is optional: %s)" % (
+        "set, backups are encrypted and sent to Telegram" if cfg.backup_passphrase
+        else "not set, backups stay in data/backups only"))
+    if cfg.backup_passphrase:
+        report(shutil.which("openssl") is not None, "openssl present (backup encryption)")
 
     for tool in ("ffmpeg", "ffprobe"):
         report(shutil.which(tool) is not None, tool + " present")

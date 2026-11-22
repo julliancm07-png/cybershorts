@@ -1,0 +1,18 @@
+[Unit]
+Description=cybershorts: back up secrets, logins, settings and the database
+After=network-online.target
+Wants=network-online.target
+OnFailure=cybershorts-alert@fail:%N.service
+OnSuccess=cybershorts-alert@ok:%N.service
+
+[Service]
+Type=oneshot
+TimeoutStartSec=15min
+Nice=10
+User=cybershorts
+Group=cybershorts
+WorkingDirectory=/opt/cybershorts
+ExecStart=/opt/cybershorts/.venv/bin/python scripts/backup.py
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full

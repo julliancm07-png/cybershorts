@@ -1,0 +1,11 @@
+[Unit]
+Description=Back up cybershorts every Sunday night
+
+[Timer]
+OnCalendar=Sun *-*-* 03:40:00 America/New_York
+Persistent=true
+RandomizedDelaySec=600
+Unit=cybershorts-backup.service
+
+[Install]
+WantedBy=timers.target

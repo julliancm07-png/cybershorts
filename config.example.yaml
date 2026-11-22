@@ -175,6 +175,22 @@ music:
 cleanup:
   keep_days: 7
 
+# Telegram alerts when a scheduled job or the bot fails (and a note when it works again).
+alerts:
+  enabled: true
+  # A job that keeps failing alerts at most once per this many minutes.
+  repeat_minutes: 180
+  # Log lines included in the alert.
+  log_lines: 25
+
+# Weekly backup of .env, config.yaml, logins and the database (scripts/backup.py).
+# Set BACKUP_PASSPHRASE in .env to encrypt it and also send it to your Telegram chat.
+backup:
+  # Local backups kept in data/backups.
+  keep: 8
+  telegram: true
+  max_telegram_mb: 45
+
 # Recurring series labels. A draft may get one series: its badge, hashtag and writing guidance.
 series:
   # Master switch for series labels.
