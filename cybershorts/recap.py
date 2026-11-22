@@ -537,7 +537,8 @@ def _check_week(cfg: Config, conn, week: str, force: bool, on_demand: bool) -> b
     if force:
         return False
     if status == "failed":
-        if not stale and _has_video(existing):
+        # only a finished recap (video + review sent) blocks; a run killed mid-render may leave a partial mp4
+        if not stale and _has_video(existing) and existing["tg_message_id"]:
             log.info("Recap #%s for %s is rendered but not published", existing["id"], week)
             if on_demand:
                 pipeline._notify(cfg, f"Recap #{existing['id']} is rendered but not published - tap Publish "

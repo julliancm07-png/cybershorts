@@ -58,3 +58,20 @@ class LabelTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class KilledRunRetryTests(unittest.TestCase):
+    def test_failed_with_partial_video_but_no_review_does_not_block(self):
+        tmp = tempfile.mkdtemp()
+        cfg = _cfg(tmp)
+        conn = db.connect(cfg)
+        db.init(conn)
+        rid = db.create_draft(conn, "recap:2026-W47", "rendered", "{}", kind="recap")
+        part = cfg.path("videos") / f"draft_{rid}.mp4"
+        part.write_bytes(b"partial")
+        db.update_draft(conn, rid, status="failed", video_path=str(part))
+        self.assertFalse(recap._check_week(cfg, conn, "2026-W47", force=False, on_demand=True))
+        db.update_draft(conn, rid, tg_message_id=5)
+        with mock.patch.object(recap.pipeline, "_notify"):
+            self.assertTrue(recap._check_week(cfg, conn, "2026-W47", force=False, on_demand=True))
+        conn.close()
