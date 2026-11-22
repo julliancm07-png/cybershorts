@@ -157,3 +157,30 @@ class FallbackEngineTests(V3Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ElevenV4SettingsTests(unittest.TestCase):
+    def _engine(self, model, **voice):
+        import copy
+        import tempfile
+        from cybershorts import config, tts
+        raw = copy.deepcopy(config.DEFAULTS)
+        raw["voice"]["engine"] = "elevenlabs"
+        raw["voice"]["elevenlabs"]["model"] = model
+        raw["voice"]["elevenlabs"].update(voice)
+        cfg = config.Config(tempfile.mkdtemp(), raw, {"ELEVENLABS_API_KEY": "k" * 20})
+        return cfg, tts._ElevenLabs(cfg)
+
+    def test_v4_is_tag_model_no_style_no_speed_continuous_stability(self):
+        from cybershorts import tags
+        cfg, e = self._engine("eleven_v4", stability=0.45, speed=1.1)
+        self.assertTrue(tags.tags_supported(cfg))
+        self.assertFalse(e.context)
+        self.assertNotIn("style", e.settings)
+        self.assertNotIn("speed", e.settings)
+        self.assertAlmostEqual(e.settings["stability"], 0.45)
+
+    def test_v3_still_snaps(self):
+        _, e = self._engine("eleven_v3", stability=0.45)
+        self.assertEqual(e.settings["stability"], 0.5)
+        self.assertIn("style", e.settings)

@@ -1,6 +1,5 @@
 """Recap label uses the channel's own count, never the ISO week."""
 import copy
-import json
 import tempfile
 import unittest
 from datetime import datetime, timezone

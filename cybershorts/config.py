@@ -37,7 +37,7 @@ DEFAULTS: dict[str, Any] = {
             "style": 0.15,
             "speaker_boost": True,
             "speed": 1.0,
-            "tag_models": ["eleven_v3"],
+            "tag_models": ["eleven_v3", "eleven_v4", "eleven_v4_turbo"],
             "audio_tags": True,
             "allowed_tags": ["curious", "excited", "whispers", "sighs", "serious", "laughs"],
             "max_tags": 3,

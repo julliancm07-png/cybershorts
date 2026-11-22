@@ -10,7 +10,7 @@ import re
 TAG_RE = r"\[([A-Za-z][A-Za-z \-]{1,24})\]"
 _TAG = re.compile(TAG_RE)
 
-DEFAULT_TAG_MODELS = ["eleven_v3"]
+DEFAULT_TAG_MODELS = ["eleven_v3", "eleven_v4", "eleven_v4_turbo"]
 DEFAULT_ALLOWED = ["curious", "excited", "whispers", "sighs", "serious", "laughs"]
 DEFAULT_MAX_TAGS = 3
 

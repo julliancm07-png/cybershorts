@@ -153,13 +153,18 @@ class _ElevenLabs:
             "style": float(cfg.get("voice.elevenlabs.style", 0.15)),
             "use_speaker_boost": bool(cfg.get("voice.elevenlabs.speaker_boost", True)),
         }
-        # v3 and other tag models: no request stitching, and stability only takes 0.0 / 0.5 / 1.0
+        # tag models (v3, v4): no request stitching
         if is_tag_model(cfg, self.model):
             self.context = False
+        mid = self.model.strip().lower()
+        if mid.startswith("eleven_v3"):  # v3 stability only takes 0.0 / 0.5 / 1.0
             st = self.settings["stability"]
             self.settings["stability"] = min((0.0, 0.5, 1.0), key=lambda v: abs(v - st))
+        v4 = mid.startswith("eleven_v4")  # v4 has no Style or Speed settings
+        if v4:
+            self.settings.pop("style", None)
         speed = float(cfg.get("voice.elevenlabs.speed", 1.0))
-        if abs(speed - 1.0) > 1e-6:
+        if abs(speed - 1.0) > 1e-6 and not v4:
             self.settings["speed"] = speed
 
     def say(self, text: str, previous_text: str = "", next_text: str = ""):

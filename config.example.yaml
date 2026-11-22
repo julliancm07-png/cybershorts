@@ -53,14 +53,14 @@ voice:
   fallback_engine: kokoro  # used automatically if ElevenLabs is out of credits or unreachable
   elevenlabs:
     voice_id: JBFqnCBsd6RMkjVDRZzb   # copy a Voice ID from elevenlabs.io > Voices (default: George)
-    model: eleven_multilingual_v2     # best quality; eleven_flash_v2_5 uses ~half the credits
+    model: eleven_multilingual_v2     # eleven_v4 = newest, most expressive (audio tags); eleven_flash_v2_5 uses ~half the credits
     stability: 0.45          # lower = more expressive, higher = steadier
     similarity_boost: 0.8
     style: 0.15              # a little delivery style; 0 = neutral
     speaker_boost: true
     speed: 1.0               # 0.7-1.2
     # Models that understand audio tags such as [sighs]; other models get the tags stripped.
-    tag_models: [eleven_v3]
+    tag_models: [eleven_v3, eleven_v4, eleven_v4_turbo]
     # Let the writer add a few audio tags to the voice script (captions never show them).
     audio_tags: true
     # Only these audio tags are kept; anything else is dropped.
