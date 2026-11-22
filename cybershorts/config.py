@@ -66,6 +66,10 @@ DEFAULTS: dict[str, Any] = {
         "max_clips": 5,
         "ken_burns": True,
         "match_story": False,
+        "variety": "story",
+        "recent_memory": 300,
+        "story_exclude_tags": ["baby", "child", "children", "kid", "kids", "wedding", "christmas", "bikini",
+                               "dog", "cat", "flower", "beach", "sunset"],
         "queries": [
             "cyber security", "hacker code", "binary code", "matrix code", "data network",
             "digital security", "computer code", "circuit board", "server data center",

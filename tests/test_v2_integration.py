@@ -40,7 +40,7 @@ class V2IntegrationTests(unittest.TestCase):
         per = 6.0 / len(tokens)
         fake_words = [(i * per, (i + 1) * per, t) for i, t in enumerate(tokens)]
 
-        def fake_broll(cfg_, n, query, prefix):
+        def fake_broll(cfg_, n, query, prefix, **kw):
             self.assertEqual(n, 3)
             out = []
             for i, pat in enumerate(("testsrc2", "smptebars", "rgbtestsrc")[:n]):

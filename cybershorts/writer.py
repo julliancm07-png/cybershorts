@@ -181,6 +181,21 @@ def series_name_for(cfg: Config, name, options) -> dict | None:
     return None
 
 
+def clean_broll_queries(raw) -> list[str]:
+    """Per-paragraph stock-footage queries: 2-4 plain words each, at most 8."""
+    if isinstance(raw, str):
+        raw = re.split(r"[,;\n]+", raw)
+    if not isinstance(raw, (list, tuple)):
+        return []
+    out: list[str] = []
+    for q in raw:
+        words = re.sub(r"[^A-Za-z0-9 \-]", " ", str(q)).split()[:4]
+        q = " ".join(words).lower()
+        if len(q) >= 3:
+            out.append(q[:40])
+    return out[:8]
+
+
 def validate_script(data: dict, story: dict, cfg: Config, series_options: list[dict] | None = None) -> dict:
     """Validate + coerce LLM script JSON. Raises ValueError if essential fields are missing."""
     for key in ("on_screen_title", "script"):
@@ -245,6 +260,7 @@ def validate_script(data: dict, story: dict, cfg: Config, series_options: list[d
         "hashtags": tags,
         "pexels_query": query,
         "keywords": keywords[:6],
+        "broll_queries": clean_broll_queries(data.get("broll_queries")),
     }
     # tags live only in voice_script (TTS); script is always tag-free
     tagmod = _tags_mod()
@@ -346,6 +362,10 @@ def write_script(cfg: Config, story: dict, *, series_options: list[dict] | None 
         'then a line of hashtags\n'
         '- "hashtags": list of 3-6 tags without the # symbol\n'
         '- "pexels_query": 2-4 word generic visual search query (e.g. "server room")\n'
+        + '- "broll_queries": one stock-video search query per paragraph of the script, in order, 2-4 words '
+        'each: a concrete, filmable scene that matches what that paragraph is about (e.g. "hospital hallway", '
+        '"phone text message", "credit card payment", "office laptop typing", "car dashboard", "server room", '
+        '"padlock keyboard"). No brand names, logos, real people, violence or text on screen\n'
         '- "keywords": 3-6 short words or phrases copied from your script (product, threat, action) '
         'to emphasise on screen, each max 24 characters\n'
         + (f'- "alt_hooks": list of {n_hooks - 1} different opening hooks for the same story, each one '

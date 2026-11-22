@@ -631,7 +631,8 @@ def render_draft(cfg: Config, draft_id: int, fail_on_error: bool = True) -> Path
             from . import visuals
 
             clips = visuals.fetch_broll_set(cfg, len(beats), data.get("pexels_query") or "technology",
-                                            cfg.path("work") / f"draft_{draft_id}_broll")
+                                            cfg.path("work") / f"draft_{draft_id}_broll",
+                                            story_queries=data.get("broll_queries"))
         ass = cfg.path("work") / f"draft_{draft_id}.ass"
         extra = _overlay_kwargs(cfg, data)
         captions.write_ass(chunks, cfg, data.get("on_screen_title", ""),

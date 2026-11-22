@@ -17,6 +17,36 @@ PIXABAY_URL = "https://pixabay.com/api/videos/"
 PEXELS_URL = "https://api.pexels.com/videos/search"
 VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".webm", ".mkv"}
 FALLBACK_QUERY = "cyber security"
+RECENT_FILE = "broll_recent.json"
+
+
+def _clip_id(link: str) -> str:
+    """Stable id of a download link without its query string (which may carry an API key)."""
+    import hashlib
+
+    return "h:" + hashlib.sha1(str(link).split("?", 1)[0].encode()).hexdigest()[:16]
+
+
+def _load_recent(cfg) -> list[str]:
+    import json
+
+    try:
+        data = json.loads(cfg.path(RECENT_FILE).read_text(encoding="utf-8"))
+        return [str(x) for x in data][-2000:] if isinstance(data, list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def _save_recent(cfg, ids: list[str]) -> None:
+    import json
+
+    keep = int(cfg.get("broll.recent_memory", 300) or 0)
+    if keep <= 0:
+        return
+    try:
+        cfg.path(RECENT_FILE).write_text(json.dumps(ids[-keep:]), encoding="utf-8")
+    except OSError as e:
+        log.warning("Could not save recent b-roll list: %s", type(e).__name__)
 
 
 # ---------- Pixabay ----------
@@ -99,8 +129,9 @@ def _pixabay_search(key: str, query: str, require=None, exclude=None, skip=None,
         timeout=20,
     )
     r.raise_for_status()
+    skip = skip or ()
     cands = [c for c in _pixabay_pick(r.json().get("hits", []), require, exclude, orientation)
-             if c not in (skip or ())]
+             if c not in skip and _clip_id(c) not in skip]
     return random.choice(cands[:8]) if cands else None
 
 
@@ -135,7 +166,9 @@ def _pexels_search(key: str, query: str, require=None, exclude=None, skip=None,
         timeout=20,
     )
     r.raise_for_status()
-    cands = [c for c in _pexels_pick(r.json().get("videos", []), orientation) if c not in (skip or ())]
+    skip = skip or ()
+    cands = [c for c in _pexels_pick(r.json().get("videos", []), orientation)
+             if c not in skip and _clip_id(c) not in skip]
     return random.choice(cands[:8]) if cands else None
 
 
@@ -184,17 +217,22 @@ def _fetch_remote(cfg, provider: str, queries: list[str], out_path: Path, used: 
     key, search, env_name = searchers[provider]
     if not key:
         return None
-    for q in queries:
+    for item in queries:
+        # a plain string uses the cyber tag filters; (query, require, exclude) overrides them
+        if isinstance(item, tuple):
+            q, require, exclude = item
+        else:
+            q, require, exclude = item, cfg.get("broll.require_tags") or None, cfg.get("broll.exclude_tags") or None
         if not q:
             continue
         try:
-            link = search(key, q, cfg.get("broll.require_tags") or None,
-                          cfg.get("broll.exclude_tags") or None, skip=used, orientation=orientation)
+            link = search(key, q, require, exclude, skip=used, orientation=orientation)
             if not link:
                 log.info("No suitable %s video for %r", provider, q)
                 continue
             _download(link, out_path)
             used.add(link)
+            used.add(_clip_id(link))
             return out_path
         except Exception as e:  # noqa: BLE001  (never log the URL: Pixabay keys ride in it)
             log.warning("%s fetch failed for %r: %s", provider, q, type(e).__name__)
@@ -202,7 +240,7 @@ def _fetch_remote(cfg, provider: str, queries: list[str], out_path: Path, used: 
 
 
 def fetch_broll_set(cfg, n: int, query: str, out_prefix, *, orientation: str = "portrait",
-                    max_clips: int | None = None) -> list[Path]:
+                    max_clips: int | None = None, story_queries: list[str] | None = None) -> list[Path]:
     """Up to `n` distinct clips (never the same download URL twice), files `{out_prefix}_{i}.mp4`.
 
     Shortfalls are filled with distinct files from the local folder (returned in place, never
@@ -225,6 +263,9 @@ def fetch_broll_set(cfg, n: int, query: str, out_prefix, *, orientation: str = "
     else:
         picks = random.sample(pool, min(n, len(pool)))
         queries = [picks[i % len(picks)] for i in range(n)]
+    variety = str(cfg.get("broll.variety", "story") or "story").lower()
+    story = [str(q).strip() for q in (story_queries or []) if str(q).strip()]
+    story_ex = cfg.get("broll.story_exclude_tags") or None
     if provider not in ("pixabay", "pexels", "local"):
         log.warning("Unknown broll.provider %r; using local folder", provider)
     clips: list[Path] = []
@@ -236,11 +277,24 @@ def fetch_broll_set(cfg, n: int, query: str, out_prefix, *, orientation: str = "
             n_remote = 0
         else:
             n_remote = n
+        recent = _load_recent(cfg)
+        used.update(recent)
         for i in range(n_remote):
-            got = _fetch_remote(cfg, provider, [queries[i], FALLBACK_QUERY], Path(f"{prefix}_{i}.mp4"), used,
-                                orientation=orientation)
+            tries: list = [queries[i], FALLBACK_QUERY]
+            if story and variety != "cyber":
+                sq = story[i % len(story)]
+                # the story's own scene first (no cyber-only tag rule), then the cyber pool as a fallback;
+                # "mixed" alternates story and cyber clips
+                if variety == "story" or i % 2 == 0:
+                    tries = [(sq, None, story_ex)] + tries
+                else:
+                    tries = tries[:1] + [(sq, None, story_ex)] + tries[1:]
+            got = _fetch_remote(cfg, provider, tries, Path(f"{prefix}_{i}.mp4"), used, orientation=orientation)
             if got:
                 clips.append(got)
+        new_ids = [u for u in used if isinstance(u, str) and u.startswith("h:") and u not in set(recent)]
+        if new_ids:
+            _save_recent(cfg, recent + sorted(new_ids))
     if len(clips) < n:
         free = [p for p in _local_clips(cfg) if p not in clips]
         random.shuffle(free)

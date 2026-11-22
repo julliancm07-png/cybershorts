@@ -92,6 +92,8 @@ Deploy steps after pulling v3 (no new Python dependencies):
 
 Note: with an old `config.yaml` (one that lacks the v3 keys), every v3 feature defaults to on: breaking drafts (once the timer is enabled), first comments, NVD lookups, and the hook-pick LLM call. To turn them off, set `breaking.enabled: false`, `youtube.first_comment: false`, `data_card.nvd: false` and `llm.hooks: 1` (1 also disables alternate hooks and the hook-pick call).
 
+**Shorts backgrounds.** Each paragraph of a Short gets stock footage that matches what it's about (the script writer suggests a scene per paragraph, e.g. "hospital hallway" for a hospital breach), falling back to the generic cyber pool. Clips used recently are never reused (last 300). `broll.variety: mixed` alternates story and cyber clips; `broll.variety: cyber` goes back to cyber-only footage.
+
 ## Weekly recap
 
 Every Sunday the bot makes a 6-8 minute in-depth landscape YouTube video (a 900-1,200 word script) of the week's top stories, drawn from the Shorts published that week. It has chapters, a thumbnail and an auto first comment. You get a preview in Telegram with two buttons, "Publish to YouTube" and "Reject". It is posted to YouTube only, not TikTok, so the Shorts can send viewers to the longer video. The video and Telegram label it with the channel's own count ("Week 1", "Week 2", ...; `recap.label`).

@@ -130,6 +130,13 @@ broll:
   # false: pick a random generic background from `queries` below (looks better, no odd matches).
   # true: search for a clip that matches the story.
   match_story: false
+  # story = each paragraph gets footage matching what it's about (from the script writer), cyber pool as
+  # fallback; mixed = alternate story and cyber clips; cyber = only the generic cyber pool below
+  variety: story
+  # Remember this many recently used clips and never reuse them
+  recent_memory: 300
+  # Tags never allowed for story footage (story clips skip require_tags)
+  story_exclude_tags: [baby, child, children, kid, kids, wedding, christmas, bikini, dog, cat, flower, beach, sunset]
   queries:                # always cyber-themed searches; one is picked at random
     - cyber security
     - hacker code

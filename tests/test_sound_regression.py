@@ -88,7 +88,7 @@ def run_case(name, tweak=None, *, music=None, data=None):
                                   audio_path=str(wav))
             conn.close()
 
-            def fake_broll(cfg_, n, query, prefix):
+            def fake_broll(cfg_, n, query, prefix, **kw):
                 clips = []
                 for i in range(n):
                     p = Path(f"{prefix}_{i}.mp4")
