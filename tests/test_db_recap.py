@@ -55,12 +55,14 @@ class DbRecapTests(unittest.TestCase):
         self.assertEqual(ids, [keep, partial])  # newest first, recap/unpublished/no-id/old excluded
         self.assertEqual(rows[0]["story_summary"], "Summary A")
         self.assertEqual(rows[0]["story_title"], "Story A")
+        self.assertEqual(rows[0]["story_source"], "Test")
 
     def test_candidates_keep_row_without_story(self):
         self._draft(story_url="https://example.com/missing", youtube_id="yt-orphan")
         rows = self.db.recap_candidates(self.conn, "2026-11-13T00:00:00")
         self.assertEqual(len(rows), 1)
         self.assertIsNone(rows[0]["story_summary"])
+        self.assertIsNone(rows[0]["story_source"])
 
     def test_candidates_treat_null_kind_as_regular(self):
         self.conn.execute(

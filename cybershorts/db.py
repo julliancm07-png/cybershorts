@@ -286,9 +286,9 @@ def all_video_stats(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 
 def recap_candidates(conn: sqlite3.Connection, since_iso: str) -> list[sqlite3.Row]:
     """Published Shorts (not recaps) with a YouTube ID, last updated at or after since_iso, newest first.
-    Each row also carries the source story's summary and title (None when the story row is missing)."""
+    Each row also carries the source story's summary, title and source (None when the story row is missing)."""
     return conn.execute(
-        "SELECT d.*, s.summary AS story_summary, s.title AS story_title"
+        "SELECT d.*, s.summary AS story_summary, s.title AS story_title, s.source AS story_source"
         " FROM drafts d LEFT JOIN stories s ON s.url = d.story_url"
         " WHERE COALESCE(d.kind,'regular') != 'recap' AND d.youtube_id IS NOT NULL"
         " AND d.status IN ('published','partial') AND d.updated_at >= ?"

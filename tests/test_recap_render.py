@@ -1,4 +1,6 @@
 import os
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -18,6 +20,9 @@ class FakeRun:
         r = mock.Mock(returncode=0, stdout="", stderr="")
         if cmd[0] == "ffprobe":
             r.stdout = "100,100"
+            return r
+        if cmd[-1] == "-filters":  # _has_gradients_filter probe: no output file
+            r.stdout = " ... gradients        |->V       Draw a gradients.\n"
             return r
         if self.fail_on and self.fail_on(cmd):
             r.returncode = 1
@@ -158,6 +163,150 @@ class StillThumbTests(Base):
         with mock.patch("subprocess.run", fake):
             self.rr.extract_still(None, self.d / "s.png")
         self.assertIn("lavfi", fake.ff()[0])
+
+
+class NewsroomTests(Base):
+    def setUp(self):
+        super().setUp()
+        self.rr._GRADIENTS_OK = True
+        self.bg = self.d / "bg.png"
+        self.bg.write_bytes(b"x")
+
+    def tearDown(self):
+        self.rr._GRADIENTS_OK = None
+        super().tearDown()
+
+    def single(self, fake, **kw):
+        with mock.patch("subprocess.run", fake):
+            return self.rr.render_recap_single(self.cfg, self.wav, self.ass, self.bg, 12.0, self.d / "out.mp4")
+
+    def graph(self, cmd):
+        return cmd[cmd.index("-filter_complex") + 1]
+
+    def test_one_background_and_one_final_pass(self):
+        fake = FakeRun()
+        with mock.patch("subprocess.run", fake):
+            png = self.rr.render_background(self.cfg, self.d / "b.png", chrome_ass=self.ass)
+            out = self.rr.render_recap_single(self.cfg, self.wav, self.ass, png, 12.0, self.d / "out.mp4")
+        self.assertTrue(png.exists() and out.exists())
+        cmds = fake.ff()
+        self.assertEqual(len(cmds), 2)
+        self.assertIn("gradients", " ".join(cmds[0]))
+        self.assertIn("ass=a.ass", " ".join(cmds[0]))
+        self.assertEqual(fake.calls[0][1]["cwd"], str(self.ass.parent))
+        self.assertFalse(any("_seg_" in a for c in cmds for a in c))
+        self.assertEqual(list(self.d.glob("*.tmp*")), [])
+
+    def test_background_fallback_without_gradients(self):
+        self.rr._GRADIENTS_OK = False
+        fake = FakeRun()
+        with mock.patch("subprocess.run", fake):
+            self.rr.render_background(self.cfg, self.d / "b.png")
+        joined = " ".join(fake.ff()[0])
+        self.assertIn("color=c=", joined)
+        self.assertNotIn("gradients", joined)
+
+    def test_gradients_detection_cached(self):
+        self.rr._GRADIENTS_OK = None
+        fake = FakeRun()
+
+        def run(cmd, **kw):
+            r = fake(cmd, **kw)
+            r.stdout = " ... gradients        |->V       Draw a gradients.\n"
+            return r
+        with mock.patch("subprocess.run", run):
+            self.assertTrue(self.rr._has_gradients_filter())
+            self.assertTrue(self.rr._has_gradients_filter())
+        self.assertEqual(len(fake.calls), 1)
+
+    def test_final_pass_args(self):
+        fake = FakeRun()
+        self.single(fake)
+        cmd = fake.ff()[0]
+        g = self.graph(cmd)
+        self.assertIn("loop=loop=-1:size=1:start=0", g)
+        self.assertIn("apad", g)
+        self.assertEqual(cmd[cmd.index("-threads") + 1], "2")
+        self.assertEqual(cmd[cmd.index("-filter_complex_threads") + 1], "2")
+        self.assertEqual(cmd[cmd.index("-framerate") + 1], "30")
+        self.assertNotIn("-loop", cmd)
+        self.assertEqual(cmd[cmd.index("-t") + 1], "12.000")
+        self.assertIn("+faststart", cmd)
+        self.assertEqual(cmd[cmd.index("-b:a") + 1], "192k")
+        self.assertEqual(cmd[cmd.index("-maxrate") + 1], "8M")
+        self.assertEqual(fake.calls[0][1]["cwd"], str(self.ass.parent))
+        self.assertIn("ass=a.ass", g)
+        self.assertNotIn("overlay", g)
+
+    def test_watermark_box_position(self):
+        logo = self.d / "logo.png"
+        logo.write_bytes(b"x")
+        fake = FakeRun()
+        with mock.patch("cybershorts.render._watermark_path", return_value=logo), \
+                mock.patch("cybershorts.render._logo_ok", return_value=True):
+            self.single(fake)
+        g = self.graph(fake.ff()[0])
+        self.assertIn("overlay=x=W-60-w:y=40", g)
+        self.assertIn("scale=64:64:force_original_aspect_ratio=decrease", g)
+
+    def test_invalid_logo_skipped(self):
+        logo = self.d / "logo.png"
+        logo.write_bytes(b"x")
+        fake = FakeRun()
+        with mock.patch("cybershorts.render._watermark_path", return_value=logo), \
+                mock.patch("cybershorts.render._logo_ok", return_value=False):
+            self.single(fake)
+        self.assertNotIn("overlay", self.graph(fake.ff()[0]))
+
+    def test_final_failure_removes_temp_and_keeps_tail(self):
+        fake = FakeRun(fail_on=lambda c: True)
+        with self.assertRaises(RuntimeError) as cm:
+            self.single(fake)
+        self.assertIn("BOOM_TAIL", str(cm.exception))
+        self.assertEqual(list(self.d.glob("out*")), [])
+
+    def test_failure_after_partial_output_removes_temp(self):
+        def writes_then_fails(cmd, **kw):
+            Path(cmd[-1]).write_bytes(b"partial")
+            return mock.Mock(returncode=1, stdout="", stderr="BOOM_TAIL")
+        with self.assertRaises(RuntimeError):
+            with mock.patch("subprocess.run", writes_then_fails):
+                self.rr.render_recap_single(self.cfg, self.wav, self.ass, self.bg, 5, self.d / "out.mp4")
+        self.assertEqual(list(self.d.glob("out*")), [])
+
+    def test_background_failure_removes_temp(self):
+        with self.assertRaises(RuntimeError):
+            with mock.patch("subprocess.run", FakeRun(fail_on=lambda c: True)):
+                self.rr.render_background(self.cfg, self.d / "bgx.png")
+        self.assertEqual(list(self.d.glob("bgx*")), [])
+
+    def test_classic_path_unchanged(self):
+        fake = FakeRun()
+        self.render(fake, parts=2)
+        self.assertEqual(len(fake.ff()), 2 + 1 + 1)
+
+
+@unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg not installed")
+class RealFfmpegTests(Base):
+    def test_render_3s(self):
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=f=440:d=2",
+                        "-ar", "44100", str(self.wav)], check=True)
+        self.ass.write_text(
+            "[Script Info]\nScriptType: v4.00+\nPlayResX: 1920\nPlayResY: 1080\n\n[V4+ Styles]\n"
+            "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, "
+            "Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
+            "Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: D,DejaVu Sans,60,&H00FFFFFF,&H00FFFFFF,"
+            "&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,5,10,10,10,1\n\n[Events]\nFormat: Layer, Start, "
+            "End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+            "Dialogue: 0,0:00:00.50,0:00:02.50,D,,0,0,0,,{\\pos(960,540)}Hi\n", encoding="utf-8")
+        png = self.rr.render_background(self.cfg, self.d / "bg.png", chrome_ass=self.ass)
+        out = self.rr.render_recap_single(self.cfg, self.wav, self.ass, png, 3.0, self.d / "o.mp4")
+        r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                            "stream=width,height:format=duration", "-of", "csv=p=0", str(out)],
+                           capture_output=True, text=True, check=True)
+        nums = [x for ln in r.stdout.split() for x in ln.split(",")]
+        self.assertEqual(nums[:2], ["1920", "1080"])
+        self.assertAlmostEqual(float(nums[-1]), 3.0, delta=0.2)
 
 
 if __name__ == "__main__":

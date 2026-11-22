@@ -1,0 +1,24 @@
+{
+  "stories": [
+    {"story_index": 1,
+     "keywords": ["check your logs"],
+     "key_points": [
+       {"text": "Patch the affected systems", "para": 1, "cue": "Patch the affected systems today"},
+       {"text": "Check logs for odd logins", "para": 1, "cue": "check your logs for odd logins"}],
+     "checklist": [
+       {"text": "Patch affected systems", "para": 1, "cue": "Patch the affected systems today"},
+       {"text": "Review login logs", "para": 1, "cue": "check your logs for odd logins"}],
+     "scenes": [
+       {"type": "terminal", "para": 1, "cue": "Patch the affected systems today", "title": "Illustrative patch check",
+        "lines": [{"kind": "cmd", "text": "systemctl status gateway"},
+                  {"kind": "out", "text": "active (running)"},
+                  {"kind": "cmd", "text": "apt upgrade gateway"},
+                  {"kind": "out", "text": "upgrade complete"}]}]},
+    {"story_index": 2,
+     "keywords": ["odd logins"],
+     "key_points": [{"text": "Watch for odd logins", "para": 1, "cue": "check your logs for odd logins"},
+                    {"text": "Fix is simple", "para": 1, "cue": "the fix is simple"}],
+     "checklist": [], "scenes": []},
+    {"story_index": 3, "keywords": [], "key_points": [], "checklist": [], "scenes": []}
+  ]
+}

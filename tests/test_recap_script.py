@@ -25,6 +25,7 @@ class Base(unittest.TestCase):
         self.cfg = config.Config(Path(self._tmp.name), copy.deepcopy(config.DEFAULTS), {})
         self.cfg.raw["recap"]["target_words"] = [150, 220]
         self.cfg.raw["recap"]["fetch_article"] = False
+        self.cfg.raw["recap"]["layout"] = "classic"
         self.cfg.raw["llm"]["fact_check"] = False
         self.conn = db.connect(self.cfg)
         db.init(self.conn)
@@ -89,6 +90,14 @@ class SelectTests(Base):
             got = recap.select_stories(self.cfg, self.conn, NOW)
         self.assertEqual([s["youtube_id"] for s in got], ["yt1", "yt2"])
         self.assertEqual(got[0]["views"], 900)
+
+    def test_source_from_row_and_domain_fallback(self):
+        self.add(1, views=5)
+        self.add(2, views=4, url="https://www.news.example.org/a/b")
+        self.conn.execute("UPDATE stories SET source=NULL WHERE url=?", ("https://www.news.example.org/a/b",))
+        self.conn.commit()
+        got = {s["youtube_id"]: s["source"] for s in recap.select_stories(self.cfg, self.conn, NOW)}
+        self.assertEqual(got, {"yt1": "Src", "yt2": "news.example.org"})
 
     def test_week_key(self):
         self.assertEqual(recap.week_key(self.cfg, datetime(2026, 11, 22, 3, 0, tzinfo=timezone.utc)), "2026-W47")

@@ -373,6 +373,40 @@ recap:
   words_per_chunk: 6
   # Seconds the story title card stays on screen.
   title_card_seconds: 3.5
+  # Visual style: newsroom (animated scenes, no stock b-roll) or classic (the older b-roll style).
+  layout: newsroom
+  # Stock b-roll: auto (on for classic, off for newsroom), true or false.
+  broll: auto
+  # Title shown in the top bar of the recap video.
+  show_title: "THIS WEEK IN CYBER"
+  # Settings for the newsroom layout.
+  newsroom:
+    # Seconds the full-screen story transition card stays up (capped at 40% of the part).
+    transition_seconds: 3.0
+    # Seconds each animated scene is planned to last.
+    scene_seconds: 12
+    # Shortest animated scene in seconds.
+    scene_min_seconds: 6
+    # Longest animated scene in seconds; longer gaps get an automatic scene.
+    scene_max_seconds: 18
+    # Animated scene types the writer may pick: terminal, flow, stat, timeline, scam.
+    scenes: [terminal, flow, stat, timeline, scam]
+    # Show the key points on screen.
+    key_points: true
+    # Most key points shown per story.
+    max_key_points: 4
+    # Show the what-to-do checklist for actionable stories.
+    checklist: true
+    # Font size of the captions in the newsroom layout.
+    caption_font_size: 44
+    # Most characters per caption line.
+    caption_max_chars: 33
+    # Faint scanline sweep over the background.
+    scanline: true
+    # Background gradient colours, diagonal from top-left to bottom-right.
+    bg_colors: ["#070B14", "#101A33"]
+    # Fill colour of the content panels.
+    panel_color: "#0F1626"
   # Seconds a /recap or timer run waits for the draft lock before giving up.
   lock_timeout: 1800
   # Low-resolution copy sent to Telegram for review.

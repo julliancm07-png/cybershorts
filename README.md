@@ -34,7 +34,7 @@ Runs on a small Debian server with Python 3.11+, systemd timers and no paid sche
 Debian LXC, as root. The LXC needs `features: nesting=1` (Proxmox: container Options > Features) or the systemd sandboxing options (`PrivateTmp`, `ProtectSystem`) fail.
 
 ```
-apt install -y python3 python3-venv ffmpeg git
+apt install -y python3 python3-venv ffmpeg git fonts-dejavu-core
 useradd --system --create-home --shell /usr/sbin/nologin cybershorts
 # put the project in /opt/cybershorts, then:
 chown -R cybershorts:cybershorts /opt/cybershorts
@@ -95,6 +95,10 @@ Note: with an old `config.yaml` (one that lacks the v3 keys), every v3 feature d
 ## Weekly recap
 
 Every Sunday the bot makes a 6-8 minute in-depth landscape YouTube video (a 900-1,200 word script) of the week's top stories, drawn from the Shorts published that week. It has chapters, a thumbnail and an auto first comment. You get a preview in Telegram with two buttons, "Publish to YouTube" and "Reject". It is posted to YouTube only, not TikTok, so the Shorts can send viewers to the longer video. The video and Telegram label it with the channel's own count ("Week 1", "Week 2", ...; `recap.label`).
+
+Recaps use a "newsroom" layout by default: animated scenes (a terminal, an attack flow, a big stat, a timeline and a scam message), plus key points, a what-to-do checklist and a transition card for each story. It uses no stock b-roll. Set `recap.layout: classic` to switch back to the old b-roll style. `recap.show_title` changes the title in the top bar. To turn off parts of the newsroom layout, set `recap.newsroom.key_points` or `recap.newsroom.checklist` to false, or remove scene types from `recap.newsroom.scenes`.
+
+Newsroom is the default from this version. After updating, run `python scripts/test_recap_newsroom.py` once on the server: it renders a 30 s sample and checks size, duration and frame count and saves review frames (needs `fonts-dejavu-core`). Set `recap.layout: classic` to go back to the old layout.
 
 Setup, as root:
 
@@ -179,6 +183,7 @@ python scripts/alert.py --test           # send a test failure alert
 python scripts/analytics.py --no-telegram # pull stats and update learnings without the Telegram report
 python scripts/doctor.py          # check config, FFmpeg, fonts, tokens and API keys
 python scripts/test_render.py     # offline render smoke test (no network)
+python scripts/test_recap_newsroom.py   # render a 30 s newsroom sample
 python -m unittest discover -s tests -v   # unit tests (stdlib only)
 ```
 

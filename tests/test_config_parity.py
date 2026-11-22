@@ -87,6 +87,27 @@ RECAP_KEYS = [
 ]
 
 
+# Every newsroom recap key (recap.layout/broll/show_title and recap.newsroom.*), as dotted paths.
+NEWSROOM_KEYS = [
+    "recap.layout",
+    "recap.broll",
+    "recap.show_title",
+    "recap.newsroom.transition_seconds",
+    "recap.newsroom.scene_seconds",
+    "recap.newsroom.scene_min_seconds",
+    "recap.newsroom.scene_max_seconds",
+    "recap.newsroom.scenes",
+    "recap.newsroom.key_points",
+    "recap.newsroom.max_key_points",
+    "recap.newsroom.checklist",
+    "recap.newsroom.caption_font_size",
+    "recap.newsroom.caption_max_chars",
+    "recap.newsroom.scanline",
+    "recap.newsroom.bg_colors",
+    "recap.newsroom.panel_color",
+]
+
+
 # Every sound.* key (ElevenLabs sound kit) plus music.prefer_kit, as dotted paths. Each must exist in DEFAULTS and in the example YAML.
 SOUND_KEYS = [
     "sound.enabled",
@@ -183,6 +204,13 @@ class ConfigParityTests(unittest.TestCase):
                 _get(config.DEFAULTS, dotted)
                 _get(example, dotted)
 
+    def test_newsroom_keys_exist_in_defaults_and_example(self):
+        example = self._example()
+        for dotted in NEWSROOM_KEYS:
+            with self.subTest(key=dotted):
+                _get(config.DEFAULTS, dotted)
+                _get(example, dotted)
+
     def test_sound_keys_exist_in_defaults_and_example(self):
         example = self._example()
         for dotted in SOUND_KEYS:
@@ -195,7 +223,7 @@ class ConfigParityTests(unittest.TestCase):
         cfg = config.load()
         diffs = _diff(config.DEFAULTS, cfg.raw)
         self.assertEqual(diffs, [], "empty config.yaml did not yield DEFAULTS:\n" + "\n".join(diffs))
-        for dotted in V3_KEYS + SOUND_KEYS:
+        for dotted in V3_KEYS + SOUND_KEYS + NEWSROOM_KEYS:
             with self.subTest(key=dotted):
                 _get(cfg.raw, dotted)
 

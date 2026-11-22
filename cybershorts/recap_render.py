@@ -199,3 +199,104 @@ def render_thumbnail(cfg: Config, still: Path | str, ass: Path | str, out_jpg: P
         if out.stat().st_size <= THUMB_MAX_BYTES:
             break
     return out
+
+
+# ---------------------------------------------------------------------------
+# Newsroom layout: one background frame + one final pass (additions for recap v2).
+# ---------------------------------------------------------------------------
+_GRADIENTS_OK: bool | None = None
+
+
+def _has_gradients_filter() -> bool:
+    """Detect the `gradients` source once (ffmpeg 5.1+/6.1); cached for the process."""
+    global _GRADIENTS_OK
+    if _GRADIENTS_OK is None:
+        try:
+            r = subprocess.run(["ffmpeg", "-hide_banner", "-filters"], capture_output=True, text=True, timeout=30)
+            _GRADIENTS_OK = r.returncode == 0 and any(
+                ln.split()[1:2] == ["gradients"] for ln in (r.stdout or "").splitlines())
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            _GRADIENTS_OK = False
+    return _GRADIENTS_OK
+
+
+def _ffmpeg_color(value: str, default: str) -> str:
+    v = str(value or "").strip().lstrip("#")
+    if len(v) == 6 and all(c in "0123456789abcdefABCDEF" for c in v):
+        return "0x" + v.upper()
+    return default
+
+
+def render_background(cfg: Config, out_png: Path | str, *, w: int = 1920, h: int = 1080,
+                      chrome_ass: Path | str | None = None) -> Path:
+    """One ffmpeg run -> a single PNG: gradient (or flat colour), light noise vs banding, optional ass chrome."""
+    out = Path(out_png).resolve()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    cols = cfg.get("recap.newsroom.bg_colors", ["#070B14", "#101A33"])
+    cols = list(cols) if isinstance(cols, (list, tuple)) else []
+    c0 = _ffmpeg_color(cols[0] if cols else "", "0x070B14")
+    c1 = _ffmpeg_color(cols[1] if len(cols) > 1 else "", "0x101A33")
+    if _has_gradients_filter():
+        src = (f"gradients=s={w}x{h}:c0={c0}:c1={c1}:x0=0:y0=0:x1={w}:y1={h}:nb_colors=2:"
+               f"duration=1:speed=0.0001:rate=1")
+    else:
+        src = f"color=c={c0}:s={w}x{h}:r=1:d=1"
+    vf = f"{src},format=yuv420p,noise=alls=3:allf=t+u:all_seed=7,format=rgb24"
+    cwd = None
+    if chrome_ass:
+        ass = Path(chrome_ass).resolve()
+        vf += f",ass={ass.name}"
+        cwd = ass.parent
+    tmp = out.with_name(f"{out.stem}.tmp{out.suffix}")
+    try:
+        _run(_ff("-f", "lavfi", "-i", vf, "-frames:v", "1", "-update", "1", *THREADS, str(tmp)),
+             cwd=cwd, timeout=300, what="ffmpeg background")
+        if not tmp.exists() or tmp.stat().st_size == 0:
+            raise RuntimeError("ffmpeg background produced no frame")
+        tmp.replace(out)
+    finally:
+        tmp.unlink(missing_ok=True)
+    return out
+
+
+def render_recap_single(cfg: Config, wav: Path | str, ass: Path | str, bg_png: Path | str,
+                        total: float, out: Path | str) -> Path:
+    """Newsroom final pass: looped background frame (decoded once) + watermark + ass= + narration audio."""
+    wav, ass, bg, out = Path(wav).resolve(), Path(ass).resolve(), Path(bg_png).resolve(), Path(out).resolve()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fps = int(cfg.get("recap.fps", 30))
+    crf = str(cfg.get("recap.crf", 22))
+    preset = str(cfg.get("recap.preset", "veryfast"))
+    timeout = int(cfg.get("recap.render_timeout", 3600))
+    total = float(total)
+    inputs = ["-framerate", str(fps), "-i", str(bg)]
+    graph = [f"[0:v]format=yuv420p,loop=loop=-1:size=1:start=0,trim=duration={total:.3f},"
+             f"setpts=PTS-STARTPTS[bgl]"]
+    wm = render._watermark_path(cfg)
+    if wm and not render._logo_ok(wm):
+        log.warning("Watermark %s is not a valid image; rendering without it", wm)
+        wm = None
+    last, n = "bgl", 1
+    if wm:
+        opacity = float(cfg.get("branding.watermark_opacity", 0.85))
+        inputs += ["-i", str(wm)]
+        graph.append("[1:v]scale=64:64:force_original_aspect_ratio=decrease,format=rgba,"
+                     f"colorchannelmixer=aa={opacity:.2f}[wm]")
+        graph.append("[bgl][wm]overlay=x=W-60-w:y=40[ov]")
+        last, n = "ov", 2
+    graph.append(f"[{last}]format=yuv420p,ass={ass.name}[v]")
+    graph.append(f"[{n}:a]apad=pad_dur={render.PAD_SECONDS}[a]")
+    tmp = out.with_name(f"{out.stem}.tmp{out.suffix}")
+    cmd = _ff(*inputs, "-i", str(wav), "-filter_complex_threads", "2", "-filter_complex", ";".join(graph),
+              "-map", "[v]", "-map", "[a]", "-t", f"{total:.3f}",
+              "-c:v", "libx264", "-preset", preset, "-crf", crf, "-maxrate", "8M", "-bufsize", "16M",
+              "-pix_fmt", "yuv420p", "-r", str(fps), "-c:a", "aac", "-b:a", "192k", "-ar", "44100",
+              *THREADS, "-movflags", "+faststart", str(tmp))
+    try:
+        _run(cmd, cwd=ass.parent, timeout=timeout, what="ffmpeg final pass")
+        if not tmp.exists():
+            raise RuntimeError("ffmpeg final pass produced no output")
+        tmp.replace(out)
+    finally:
+        tmp.unlink(missing_ok=True)
+    return out

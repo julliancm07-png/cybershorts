@@ -11,6 +11,7 @@ from unittest import mock
 from cybershorts import config, db, recap, recap_publish
 
 FIX = Path(__file__).parent / "fixtures" / "recap_llm.json"
+VIS_FIX = Path(__file__).parent / "fixtures" / "recap_llm_visuals.json"
 WEEK = "2026-W47"
 AUDIO_SECONDS = 45
 
@@ -22,12 +23,15 @@ def _probe(path, entries):
 
 
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg not installed")
-class RecapE2E(unittest.TestCase):
+class _E2EBase(unittest.TestCase):
+    layout = "classic"
+
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.cfg = config.Config(Path(self._tmp.name), copy.deepcopy(config.DEFAULTS), {})
         self.cfg.raw["recap"]["target_words"] = [150, 220]
         self.cfg.raw["recap"]["fetch_article"] = False
+        self.cfg.raw["recap"]["layout"] = self.layout
         self.cfg.raw["llm"]["fact_check"] = False
         self.cfg.raw["music"] = {**(self.cfg.raw.get("music") or {}), "enabled": False}
         self.addCleanup(mock.patch.stopall)
@@ -53,6 +57,8 @@ class RecapE2E(unittest.TestCase):
         step = AUDIO_SECONDS / len(toks)
         return [(i * step, i * step + step * 0.9, t) for i, t in enumerate(toks)]
 
+
+class RecapE2E(_E2EBase):
     def test_run_then_publish(self):
         tg = mock.Mock()
         tg.send_photo.return_value = {"message_id": 1}
@@ -138,6 +144,77 @@ class RecapE2E(unittest.TestCase):
             conn.close()
         self.assertEqual(row["status"], "published")
         self.assertEqual(row["youtube_id"], "RECAPYT")
+
+
+@unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg not installed")
+class RecapNewsroomE2E(_E2EBase):
+    """Same flow with layout newsroom: real recap_newsroom + recap_render; the LLM is mocked for the script call
+    and for the second (visuals) call."""
+
+    layout = "newsroom"
+
+    def test_newsroom_run(self):
+        tg = mock.Mock()
+        tg.send_photo.return_value = {"message_id": 1}
+        tg.send_video.return_value = {"message_id": 4242}
+        tg.send_message.return_value = {"message_id": 4243}
+        script_raw, vis_raw = FIX.read_text(), VIS_FIX.read_text()
+        calls = []
+
+        def chat(cfg, messages, **kw):
+            blob = json.dumps(messages)
+            calls.append("visuals" if "[P1]" in blob else "script")
+            return vis_raw if "[P1]" in blob else script_raw
+
+        def capture_words(cfg, wav, script):
+            self.script_words = script.split()
+            return self._words(cfg, wav, script)
+
+        broll = mock.Mock(return_value=[])
+        with mock.patch("cybershorts.recap.week_key", return_value=WEEK), \
+                mock.patch("cybershorts.recap.select_stories", side_effect=self._stories), \
+                mock.patch("cybershorts.writer.chat", side_effect=chat), \
+                mock.patch("cybershorts.pipeline._voice", side_effect=self._voice), \
+                mock.patch("cybershorts.tts.load_spans", return_value=None), \
+                mock.patch("cybershorts.captions.transcribe_words", side_effect=capture_words), \
+                mock.patch("cybershorts.captions.align_to_script", side_effect=lambda w, s: w), \
+                mock.patch("cybershorts.visuals.fetch_broll_set", broll), \
+                mock.patch("cybershorts.pipeline._telegram", return_value=tg), \
+                mock.patch("cybershorts.pipeline._notify"):
+            draft_id = recap.run(self.cfg)
+
+        self.assertEqual(calls[:2], ["script", "visuals"])
+        broll.assert_not_called()
+        self.assertIsNotNone(draft_id)
+        conn = db.connect(self.cfg)
+        try:
+            row = db.get_draft(conn, draft_id)
+        finally:
+            conn.close()
+        self.assertEqual(row["status"], "rendered", row["error"])
+        self.assertEqual(row["tg_message_id"], 4242)
+        data = json.loads(row["data_json"])
+        self.assertIn("visuals_stats", data)
+        self.assertEqual(set(data["visuals_stats"]), {"scenes", "points", "dropped"})
+        self.assertGreater(data["visuals_stats"]["points"], 0)
+        self.assertEqual(len(data["visuals"]), 3)
+
+        video = Path(row["video_path"])
+        self.assertEqual(_probe(video, "stream=width,height"), "1920,1080")
+        dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0",
+                                    str(video)], capture_output=True, text=True).stdout.strip())
+        self.assertAlmostEqual(dur, data["duration"], delta=0.5)
+        preview = self.work / f"draft_{draft_id}_preview.mp4"
+        thumb = self.work / f"draft_{draft_id}_thumb.jpg"
+        self.assertEqual(_probe(preview, "stream=width,height"), "854,480")
+        self.assertEqual(_probe(thumb, "stream=width,height"), "1280,720")
+        tg.send_photo.assert_called_once()
+        self.assertEqual(Path(tg.send_video.call_args[0][0]), preview)
+        self.assertIn("🎞 scenes", tg.send_video.call_args[0][1])
+        # no newsroom temp files left behind (chrome ass, background and still pngs, per-part files)
+        left = sorted(p.name for p in self.work.glob(f"draft_{draft_id}_*")
+                      if p.name not in (preview.name, thumb.name))
+        self.assertEqual([n for n in left if n.endswith((".png", "_chrome.ass")) or "_seg_" in n], [])
 
 
 if __name__ == "__main__":

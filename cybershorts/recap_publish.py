@@ -52,12 +52,22 @@ def recap_caption(data: dict, draft_id: int) -> str:
     warn = str(data.get("chapters_warning") or "").strip()
     thumb = str(data.get("thumbnail_text") or "").strip()
     fc = data.get("fact_check")
+    vs = data.get("visuals_stats")
+    stats_line = ""
+    if isinstance(vs, dict):
+        try:
+            stats_line = "🎞 scenes {} · points {} · dropped {}".format(
+                *(int(vs.get(k) or 0) for k in ("scenes", "points", "dropped")))
+        except (TypeError, ValueError):
+            stats_line = ""
 
-    def build(max_ch: int, max_issues: int, title_len: int) -> str:
+    def build(max_ch: int, max_issues: int, title_len: int, with_stats: bool = True) -> str:
         t = title if len(title) <= title_len else title[: title_len - 1].rstrip() + "…"
         blocks = [f"🎬 Weekly recap #{draft_id}" + (f" · {_esc(week)}" if week else ""), f"<b>{_esc(t)}</b>"]
         if meta:
             blocks.append(_esc(" · ".join(meta)))
+        if stats_line and with_stats:
+            blocks.append(stats_line)
         if chapters:
             shown = chapters[:max_ch]
             if len(shown) < len(chapters):
@@ -73,16 +83,20 @@ def recap_caption(data: dict, draft_id: int) -> str:
         return "\n\n".join(b for b in blocks if b)
 
     max_ch, max_issues, title_len = len(chapters), 5, 100
+    with_stats = True
     cap = build(max_ch, max_issues, title_len)
+    if len(cap) > CAPTION_LIMIT:  # the stats line goes first, before any chapter is cut
+        with_stats = False
+        cap = build(max_ch, max_issues, title_len, with_stats)
     while len(cap) > CAPTION_LIMIT and max_ch > 0:
         max_ch -= 1
-        cap = build(max_ch, max_issues, title_len)
+        cap = build(max_ch, max_issues, title_len, with_stats)
     while len(cap) > CAPTION_LIMIT and max_issues > 0:
         max_issues -= 1
-        cap = build(max_ch, max_issues, title_len)
+        cap = build(max_ch, max_issues, title_len, with_stats)
     while len(cap) > CAPTION_LIMIT and title_len > 20:
         title_len -= 20
-        cap = build(max_ch, max_issues, title_len)
+        cap = build(max_ch, max_issues, title_len, with_stats)
     return cap[:CAPTION_LIMIT]
 
 

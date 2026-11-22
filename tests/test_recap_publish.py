@@ -164,6 +164,33 @@ class CaptionTests(Base):
         self.assertLessEqual(len(cap), 1024)
         self.assertIn("Weekly recap #12", cap)
 
+    def test_visuals_stats_line(self):
+        data = {"youtube_title": "T", "duration": 300, "chapters": [[0, "Intro"], [20, "a"], [50, "b"]],
+                "visuals_stats": {"scenes": 9, "points": 14, "dropped": 3}}
+        cap = self.rp.recap_caption(data, 4)
+        self.assertIn("🎞 scenes 9 · points 14 · dropped 3", cap)
+        self.assertLess(cap.index("🎞"), cap.index("00:00 Intro"))
+        self.assertNotIn("🎞", self.rp.recap_caption({"youtube_title": "T"}, 4))
+
+    def test_visuals_stats_dropped_before_chapters(self):
+        # chapters fit exactly without the stats line: the stats line must go before any chapter is trimmed
+        data = {"youtube_title": "T", "chapters": [[i * 15, "Chapter %02d" % i] for i in range(60)],
+                "visuals_stats": {"scenes": 1, "points": 2, "dropped": 3}}
+        base = dict(data)
+        base.pop("visuals_stats")
+        n = 60
+        while len(self.rp.recap_caption(dict(base, chapters=data["chapters"][:n]), 1)) > 1024 - 40 and n > 1:
+            n -= 1
+        data["chapters"] = data["chapters"][:n]
+        full = self.rp.recap_caption(dict(base, chapters=data["chapters"]), 1)
+        cap = self.rp.recap_caption(data, 1)
+        self.assertLessEqual(len(cap), 1024)
+        self.assertEqual(("🎞" in cap), len(full) + len("\n\n🎞 scenes 1 · points 2 · dropped 3") <= 1024)
+        # huge chapter list: still <= 1024, and every chapter line kept is intact
+        big = dict(data, chapters=[[i * 15, "Chapter title number %d" % i] for i in range(80)])
+        self.assertLessEqual(len(self.rp.recap_caption(big, 1)), 1024)
+        self.assertNotIn("🎞", self.rp.recap_caption(big, 1))
+
     def test_no_chapters_warning(self):
         cap = self.rp.recap_caption({"youtube_title": "T", "chapters": [], "chapters_warning": "too short"}, 1)
         self.assertIn("⚠️ No chapters: too short", cap)

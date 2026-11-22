@@ -1,0 +1,24 @@
+{
+  "source": "Title: Acme Gateway flaw exploited\nSummary: CVE-2026-1111 in Acme Gateway 7.4.2 let attackers run code. About 4,000 servers were exposed. Acme disclosed it on Nov 12 and patched it in 7.4.3. Rated 9.8. A scam campaign tricked 70% of targets and stole $2.3 million in 2026.",
+  "narration": "Acme Gateway had a serious flaw this week.\n\nAttackers could run code on about four thousand servers.\n\nPatch it today and check your logs.",
+  "story_stub": {"title": "Acme Gateway flaw exploited", "summary": "CVE-2026-1111 in Acme Gateway 7.4.2 let attackers run code. About 4,000 servers were exposed.", "article": ""},
+  "data": {"segments": [{"story_index": 1, "chapter": "Acme", "narration": "Acme Gateway had a serious flaw this week.\n\nAttackers could run code on about four thousand servers.\n\nPatch it today and check your logs."}]},
+  "raw_segment": {
+    "story_index": 1,
+    "keywords": ["Acme Gateway", "four thousand servers", "not said anywhere"],
+    "key_points": [
+      {"text": "Acme Gateway flaw exploited", "para": 1, "cue": "serious flaw this week"},
+      {"text": "About 4,000 servers exposed", "para": 2, "cue": "about four thousand servers"}
+    ],
+    "checklist": [
+      {"text": "Patch Acme Gateway today", "para": 3, "cue": "Patch it today"},
+      {"text": "Check your logs", "para": 3, "cue": "check your logs"}
+    ],
+    "scenes": [
+      {"type": "terminal", "para": 2, "cue": "run code on about", "title": "Attacker console",
+       "lines": [{"kind": "cmd", "text": "probe gateway"}, {"kind": "out", "text": "access granted"},
+                 {"kind": "alert", "text": "Server compromised"}]},
+      {"type": "stat", "para": 2, "cue": "four thousand servers", "value": "4,000", "label": "servers exposed"}
+    ]
+  }
+}

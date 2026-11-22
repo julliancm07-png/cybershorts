@@ -11,6 +11,7 @@ import math
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 from . import db, pipeline, tags as tagmod, writer
 from .config import Config
@@ -94,6 +95,21 @@ def _views(cfg: Config, conn, ids: list[str]) -> dict[str, int]:
     return out
 
 
+def _story_source(row, url) -> str:
+    """Publisher name from the stories row, else the URL's domain."""
+    try:
+        name = " ".join(str(row["story_source"] or "").split())
+    except (IndexError, KeyError):
+        name = ""
+    if name:
+        return name
+    try:
+        host = urlparse(str(url or "")).hostname or ""
+    except ValueError:
+        host = ""
+    return host[4:] if host.startswith("www.") else host
+
+
 def select_stories(cfg: Config, conn, now: datetime | None = None) -> list[dict]:
     """Top `recap.stories` Shorts from the last `recap.lookback_days`, ranked by views, breaking, recency."""
     since = _aware(now).astimezone(timezone.utc) - timedelta(days=int(cfg.get("recap.lookback_days", 7)))
@@ -110,6 +126,7 @@ def select_stories(cfg: Config, conn, now: datetime | None = None) -> list[dict]
             "title": " ".join(title.split()), "summary": (r["story_summary"] or "").strip(),
             "script": data.get("script", ""), "description": data.get("description", ""),
             "breaking": bool(data.get("breaking")) or r["kind"] == "breaking",
+            "source": _story_source(r, r["story_url"]),
             "series": data.get("series") or "", "data": data,
             "views": views.get(str(r["youtube_id"]), 0), "_updated": r["updated_at"] or "",
         })
@@ -552,6 +569,84 @@ def _check_week(cfg: Config, conn, week: str, force: bool, on_demand: bool) -> b
     return True
 
 
+def layout(cfg: Config) -> str:
+    """'classic' or 'newsroom' (the default; anything unrecognised means newsroom)."""
+    return "classic" if str(cfg.get("recap.layout", "newsroom") or "").strip().lower() == "classic" else "newsroom"
+
+
+_VISUAL_SKIP = {"type", "para", "cue", "kind", "channel", "story_index", "dropped"}
+
+
+def _collect_text(v, out: list[str]) -> None:
+    if isinstance(v, str):
+        if v.strip():
+            out.append(v.strip())
+    elif isinstance(v, dict):
+        for k, x in v.items():
+            if k not in _VISUAL_SKIP:
+                _collect_text(x, out)
+    elif isinstance(v, (list, tuple)):
+        for x in v:
+            _collect_text(x, out)
+
+
+_DRAMATIZED = ("terminal", "scam")      # illustrative scenes: validated by recap_visuals, not fact-checked again
+
+
+def visual_text(visuals: list[dict], chapters=None) -> str:
+    """On-screen text worth fact-checking (keywords are narration words, terminal/scam dramatizations are
+    already validated): key points, checklist, the other scenes and the chapter titles."""
+    lines: list[str] = []
+    for v in visuals or []:
+        if not isinstance(v, dict):
+            continue
+        for key in ("key_points", "checklist"):
+            _collect_text(v.get(key) or [], lines)
+        for sc in v.get("scenes") or []:
+            if isinstance(sc, dict) and str(sc.get("type") or "") in _DRAMATIZED:
+                continue
+            _collect_text(sc, lines)
+    for c in chapters or []:
+        _collect_text(c, lines)
+    return "\n".join(lines)
+
+
+def _empty_visuals(n: int) -> list[dict]:
+    return [{"story_index": i + 1, "keywords": [], "key_points": [], "checklist": [], "scenes": [],
+             "dropped": []} for i in range(n)]
+
+
+def build_visuals(cfg: Config, stories: list[dict], data: dict) -> list[dict]:
+    """Newsroom only: confirmed cards + the second LLM call. Never raises; failure -> empty visuals."""
+    n = len(stories)
+    cards = []
+    for s in stories:
+        try:
+            card = pipeline._overlay_kwargs(cfg, s.get("data") or {}).get("card")
+        except Exception as e:  # noqa: BLE001
+            log.warning("Card lookup failed: %s", type(e).__name__)
+            card = None
+        cards.append(card if isinstance(card, dict) else None)
+    data["cards"] = cards
+    vis: list[dict] = []
+    try:
+        from . import recap_visuals
+
+        vis = list(recap_visuals.write_recap_visuals(cfg, stories, data) or [])
+    except Exception as e:  # noqa: BLE001
+        log.warning("Recap visuals failed (%s); using automatic scenes", type(e).__name__)
+        vis = []
+    if len(vis) != n:
+        vis = _empty_visuals(n)
+    data["visuals"] = vis
+    data["visuals_stats"] = {
+        "scenes": sum(len(v.get("scenes") or []) for v in vis),
+        "points": sum(len(v.get("key_points") or []) for v in vis),
+        "dropped": sum(len(v.get("dropped") or []) for v in vis),
+    }
+    return vis
+
+
 def run(cfg: Config, *, force: bool = False, on_demand: bool = False) -> int | None:
     """Make this week's recap and send it for review. Returns the draft id, or None if skipped."""
     if not cfg.get("recap.enabled", True):
@@ -577,11 +672,18 @@ def run(cfg: Config, *, force: bool = False, on_demand: bool = False) -> int | N
 
     try:
         data = write_recap_script(cfg, stories, week, label=label, dates=date_range(cfg))
+        on_screen = ""
+        if layout(cfg) == "newsroom":
+            on_screen = visual_text(build_visuals(cfg, stories, data),
+                                    [g.get("chapter") for g in data.get("segments") or [] if isinstance(g, dict)])
         if cfg.get("llm.fact_check", True):
             joined = "\n\n".join(f"[Story {i}]\n{source_text(cfg, s)}" for i, s in enumerate(stories, 1))
             data["fact_check"] = writer.fact_check(
                 cfg, {"title": data["title"], "summary": joined},
-                {"on_screen_title": data["on_screen_title"], "script": data["script"],
+                {"on_screen_title": data["on_screen_title"],
+                 "script": data["script"] + (
+                     f"\n\nOn-screen text (check only numbers, names, versions, dates):\n{on_screen}"
+                     if on_screen else ""),
                  "description": data["description"]})
     except Exception as e:  # noqa: BLE001
         log.error("Recap script failed: %s", pipeline._short_error(cfg, e))
@@ -657,22 +759,66 @@ def _produce(cfg: Config, draft_id: int, week: str, stories: list[dict], data: d
                                     else "too few or too short parts")
     data["description"] = build_description(cfg, data, data["chapters"], stories)
 
-    n_clips = min(len(parts) * int(cfg.get("recap.broll_per_part", 2)), int(cfg.get("recap.max_clips", 12)))
-    if n_clips > 0:
-        clips.extend(visuals.fetch_broll_set(cfg, n_clips, "technology", cfg.path("work") / f"draft_{draft_id}_broll",
-                                             orientation="landscape", max_clips=n_clips) or [])
-    per = max(1, int(cfg.get("recap.broll_per_part", 2)))
-    part_clips = [[clips[(i * per + j) % len(clips)] for j in range(per)] if clips else []
-                  for i in range(len(parts))]
+    newsroom = layout(cfg) == "newsroom"
+    work = cfg.path("work")
+    temps: list[Path] = []
+    if newsroom:
+        if str(cfg.get("recap.broll", "auto")).strip().lower() == "true":
+            log.warning("recap.broll is ignored by the newsroom layout (no b-roll in v1)")
+        from . import recap_newsroom
+
+        has_logo = False
+        try:
+            wm = render._watermark_path(cfg)
+            has_logo = bool(wm) and bool(render._logo_ok(wm))
+        except Exception as e:  # noqa: BLE001
+            log.warning("Watermark check failed: %s", type(e).__name__)
+        handle = cfg.get("channel.handle", "")
+        week_label = data.get("week_label") or week
+        chrome = work / f"draft_{draft_id}_chrome.ass"
+        bg = work / f"draft_{draft_id}_bg.png"
+        temps += [chrome, bg]
+        part_clips = []
+    else:
+        broll_off = str(cfg.get("recap.broll", "auto")).strip().lower() in ("false", "0", "no", "off")
+        n_clips = 0 if broll_off else min(len(parts) * int(cfg.get("recap.broll_per_part", 2)),
+                                          int(cfg.get("recap.max_clips", 12)))
+        if n_clips > 0:
+            clips.extend(visuals.fetch_broll_set(cfg, n_clips, "technology",
+                                                 cfg.path("work") / f"draft_{draft_id}_broll",
+                                                 orientation="landscape", max_clips=n_clips) or [])
+        per = max(1, int(cfg.get("recap.broll_per_part", 2)))
+        part_clips = [[clips[(i * per + j) % len(clips)] for j in range(per)] if clips else []
+                      for i in range(len(parts))]
     overlays = {}
+    cards = list(data.get("cards") or [])
     for i, s in enumerate(stories, 1):
         extra = pipeline._overlay_kwargs(cfg, s.get("data") or {})
         if extra:
             overlays[i] = extra
-    work = cfg.path("work")
-    ass = recap_captions.write_recap_ass(
-        cfg, words, chunks, parts, total, title=data["on_screen_title"], week_label=data.get("week_label") or week,
-        handle=cfg.get("channel.handle", ""), overlays=overlays, out_path=work / f"draft_{draft_id}.ass")
+    if newsroom:
+        cards = [(cards[i] if i < len(cards) else None) or (overlays.get(i + 1) or {}).get("card")
+                 for i in range(len(stories))]
+        vis = list(data.get("visuals") or [])
+        vis += _empty_visuals(len(stories))[len(vis):]
+        try:
+            chrome.write_text(recap_newsroom.build_chrome_ass(cfg, parts, total, week_label=week_label,
+                                                              handle=handle, has_logo=has_logo), encoding="utf-8")
+            ass = recap_newsroom.write_newsroom_ass(
+                cfg, words, chunks, parts, total, work / f"draft_{draft_id}.ass", stories=stories, visuals=vis,
+                cards=cards, script=script, para_counts=pc, week_label=week_label, handle=handle)
+        except BaseException:
+            for t in temps:             # the chrome .ass is written first: never leave it behind
+                try:
+                    Path(t).unlink(missing_ok=True)
+                except OSError:
+                    pass
+            raise
+    else:
+        ass = recap_captions.write_recap_ass(
+            cfg, words, chunks, parts, total, title=data["on_screen_title"],
+            week_label=data.get("week_label") or week,
+            handle=cfg.get("channel.handle", ""), overlays=overlays, out_path=work / f"draft_{draft_id}.ass")
     out = cfg.path("videos") / f"draft_{draft_id}.mp4"
     durations = [p["end"] - p["start"] for p in parts]
     prefix = str(work / f"draft_{draft_id}")
@@ -683,29 +829,44 @@ def _produce(cfg: Config, draft_id: int, week: str, stories: list[dict], data: d
         log.warning("Recap sound mix failed: %s", pipeline._short_error(cfg, e, 100))
         mixed, has_bed = None, False
     audio = mixed or wav
+    thumb = work / f"draft_{draft_id}_thumb.jpg"
     try:
         try:
-            recap_render.render_recap(cfg, audio, ass, part_clips, durations, out, prefix=prefix)
+            if newsroom:
+                recap_render.render_background(cfg, bg, chrome_ass=chrome)
+                recap_render.render_recap_single(cfg, audio, ass, bg, total, out)
+            else:
+                recap_render.render_recap(cfg, audio, ass, part_clips, durations, out, prefix=prefix)
         except RuntimeError as e:
-            if not clips:
+            if newsroom or not clips:
                 raise
             log.warning("Recap render with b-roll failed (%s); retrying without b-roll", type(e).__name__)
             recap_render.render_recap(cfg, audio, ass, [[] for _ in parts], durations, out, prefix=prefix)
+        finally:
+            if mixed:
+                try:
+                    Path(mixed).unlink(missing_ok=True)
+                except OSError:
+                    pass
+        try:
+            if newsroom:
+                still = recap_render.render_background(cfg, work / f"draft_{draft_id}_still.png", w=1280, h=720)
+                temps.append(Path(still))
+            else:
+                still = recap_render.extract_still(clips[0] if clips else None,
+                                                   work / f"draft_{draft_id}_still.png")
+            tass = work / f"draft_{draft_id}_thumb.ass"
+            tass.write_text(recap_captions.build_thumbnail_ass(cfg, data["thumbnail_text"]), encoding="utf-8")
+            recap_render.render_thumbnail(cfg, still, tass, thumb)
+        except Exception as e:  # noqa: BLE001
+            log.warning("Recap thumbnail failed: %s", pipeline._short_error(cfg, e, 100))
+            thumb = None
     finally:
-        if mixed:
+        for t in temps + [work / f"draft_{draft_id}_still.png"] * newsroom:
             try:
-                Path(mixed).unlink(missing_ok=True)
+                Path(t).unlink(missing_ok=True)
             except OSError:
                 pass
-    thumb = work / f"draft_{draft_id}_thumb.jpg"
-    try:
-        still = recap_render.extract_still(clips[0] if clips else None, work / f"draft_{draft_id}_still.png")
-        tass = work / f"draft_{draft_id}_thumb.ass"
-        tass.write_text(recap_captions.build_thumbnail_ass(cfg, data["thumbnail_text"]), encoding="utf-8")
-        recap_render.render_thumbnail(cfg, still, tass, thumb)
-    except Exception as e:  # noqa: BLE001
-        log.warning("Recap thumbnail failed: %s", pipeline._short_error(cfg, e, 100))
-        thumb = None
     pipeline._cleanup_broll(cfg, draft_id, clips)
     clips.clear()
 

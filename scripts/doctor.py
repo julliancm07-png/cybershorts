@@ -66,6 +66,11 @@ def main() -> int:
             report(bool(out.strip()), "font '%s'" % font)
         except Exception as e:  # noqa: BLE001
             report(False, "font '%s'" % font, str(e))
+        try:
+            out = run(["fc-list", ":family=DejaVu Sans Mono"])
+            report(bool(out.strip()), "font 'DejaVu Sans Mono' (recap newsroom terminal)")
+        except Exception as e:  # noqa: BLE001
+            report(False, "font 'DejaVu Sans Mono'", str(e))
     else:
         report(False, "fc-list present (fontconfig)")
 

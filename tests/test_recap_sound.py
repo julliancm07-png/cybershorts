@@ -14,6 +14,7 @@ class RecapSound(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.addCleanup(mock.patch.stopall)
         self.cfg = config.Config(Path(self._tmp.name), copy.deepcopy(config.DEFAULTS), {})
+        self.cfg.raw["recap"]["layout"] = "classic"
         self.work = self.cfg.path("work")
         self.work.mkdir(parents=True, exist_ok=True)
         self.wav = self.work / "draft_7.wav"
