@@ -52,6 +52,18 @@ def tiktok_caption(data: dict) -> str:
     return f"{_first_sentence(data.get('description', ''))} {tags}".strip()
 
 
+def tiktok_caption_for(cfg: Config, draft_id: int) -> str | None:
+    """The TikTok caption for a draft, if its TikTok upload succeeded."""
+    conn = db.connect(cfg)
+    try:
+        row = db.get_draft(conn, draft_id)
+    finally:
+        conn.close()
+    if row is None or not row["tiktok_publish_id"]:
+        return None
+    return tiktok_caption(_draft_data(row))
+
+
 def _fact_check_lines(fc, max_issues: int = 5) -> list[str]:
     """Plain-text lines (to be HTML-escaped by the caller) for the fact-check result."""
     if not isinstance(fc, dict):
@@ -84,7 +96,7 @@ def _telegram_caption(data: dict, story_url: str, draft_id: int) -> str:
         if fcl:
             blocks.append("\n".join(html.escape(x) for x in fcl))
         blocks.append(html.escape(story_url))
-        blocks.append("TikTok caption: " + html.escape(tt[:tt_len]))
+        blocks.append("TikTok caption (tap to copy): <code>" + html.escape(tt[:tt_len]) + "</code>")
         return "\n\n".join(blocks)
 
     prev_len, tt_len, max_issues = len(full_preview), len(tt), 5
@@ -386,7 +398,7 @@ def publish(cfg: Config, draft_id: int, targets: set[str]) -> str:
             _save_fields(cfg, draft_id, tiktok_publish_id=pid)
             ok.append("tt")
             lines.append("TikTok: Draft sent to your TikTok inbox — open TikTok to post (expires ~24h)")
-            lines.append(f"Suggested caption: {tiktok_caption(data)}")
+            lines.append("Caption is in the next message: tap it to copy, then paste it in TikTok")
         except Exception as e:
             log.error("TikTok upload failed: %s", e)
             errors.append(f"TikTok: {e}")

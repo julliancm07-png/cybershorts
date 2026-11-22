@@ -137,6 +137,14 @@ def main() -> int:
                 log.exception("publish failed")
                 summary = "Publish failed for draft %s: %s" % (draft_id, e)
             reply(esc(summary))
+            if "tt" in targets:
+                try:
+                    cap = pipeline.tiktok_caption_for(cfg, draft_id)
+                    if cap:
+                        # <code> text is tap-to-copy in Telegram's mobile apps
+                        tg.send_message("<code>" + esc(cap) + "</code>")
+                except Exception:  # noqa: BLE001
+                    log.warning("Could not send the TikTok caption", exc_info=True)
             offer_retry(draft_id, targets)
         elif action == "rej":
             try:

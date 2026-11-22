@@ -374,3 +374,17 @@ class PipelineCrashSafetyTests(PipelineTests):
         finally:
             conn.close()
         self.assertEqual(self.pipeline.stuck_publishing(self.cfg), [self.id])
+
+
+class TikTokCaptionTests(PipelineTests):
+    def test_caption_available_after_tiktok_upload(self):
+        self.assertIsNone(self.pipeline.tiktok_caption_for(self.cfg, self.id))
+        self._publish({"tt"})
+        cap = self.pipeline.tiktok_caption_for(self.cfg, self.id)
+        self.assertEqual(cap, "Desc one. #a #b")
+
+    def test_draft_caption_has_tap_to_copy(self):
+        data = {"on_screen_title": "T", "script": "s", "description": "Desc one. Source: http://x",
+                "hashtags": ["a"]}
+        cap = self.pipeline._telegram_caption(data, "http://x", 1)
+        self.assertIn("<code>Desc one. #a</code>", cap)
